@@ -1,14 +1,14 @@
 export {};
 
-type MediaAccessStatus =
-  | 'not-determined'
-  | 'granted'
-  | 'denied'
-  | 'restricted'
-  | 'unknown'
-  | 'unsupported';
-
 declare global {
+  type MediaAccessStatus =
+    | 'not-determined'
+    | 'granted'
+    | 'denied'
+    | 'restricted'
+    | 'unknown'
+    | 'unsupported';
+
   interface Window {
     companion: {
       readonly platform: string;
