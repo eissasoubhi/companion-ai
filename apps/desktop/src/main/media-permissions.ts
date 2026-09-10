@@ -33,13 +33,18 @@ export function configureMediaPermissionHandlers(session: Session): void {
   });
 
   session.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    if (permission !== 'media' || !isAppOrigin(webContents.getURL())) {
+    if (
+      permission !== 'media' ||
+      !isAppOrigin(webContents.getURL()) ||
+      !('mediaTypes' in details)
+    ) {
       callback(false);
       return;
     }
 
     const mediaTypes = details.mediaTypes ?? [];
-    const audioOnly = mediaTypes.length > 0 && mediaTypes.every((type) => type === 'audio');
+    const audioOnly =
+      mediaTypes.length > 0 && mediaTypes.every((mediaType) => mediaType === 'audio');
 
     callback(audioOnly);
   });
