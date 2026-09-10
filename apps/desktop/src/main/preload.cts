@@ -6,4 +6,7 @@ contextBridge.exposeInMainWorld('companion', {
     getPermissionStatus: () => ipcRenderer.invoke('microphone:get-permission'),
     requestPermission: () => ipcRenderer.invoke('microphone:request-permission'),
   },
+  systemAudio: {
+    getCapability: () => ipcRenderer.invoke('system-audio:get-capability'),
+  },
 });
