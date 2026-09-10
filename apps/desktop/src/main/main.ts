@@ -27,7 +27,7 @@ function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      preload: join(currentDir, 'preload.js'),
+      preload: join(currentDir, 'preload.cjs'),
     },
   });
 
