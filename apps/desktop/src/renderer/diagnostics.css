@@ -1,0 +1,25 @@
+.status-checking,
+.status-text-checking {
+  color: var(--focus-ring);
+}
+
+.status-error,
+.status-text-error {
+  color: var(--status-blocked);
+}
+
+.check-detail,
+.check-action {
+  max-width: 620px;
+  font-size: 12px !important;
+  line-height: 1.5;
+}
+
+.check-detail {
+  color: var(--text-muted) !important;
+}
+
+.check-action {
+  color: var(--text-primary) !important;
+  font-weight: 650;
+}

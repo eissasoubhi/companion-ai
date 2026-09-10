@@ -7,6 +7,9 @@
   "scripts": {
     "build": "pnpm build:main && vite build",
     "build:main": "tsc -p tsconfig.node.json",
+    "dev": "pnpm start",
+    "pack:mac": "pnpm build && electron-builder --mac dir",
+    "start": "pnpm build && electron .",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
@@ -19,6 +22,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "electron": "44.3.0",
+    "electron-builder": "26.15.3",
     "vite": "8.2.2"
   }
 }

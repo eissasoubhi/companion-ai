@@ -1,8 +1,19 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  configureMediaPermissionHandlers,
+  getMicrophonePermissionStatus,
+  requestMicrophonePermission,
+} from './media-permissions.js';
+
 const currentDir = dirname(fileURLToPath(import.meta.url));
+
+function registerIpcHandlers(): void {
+  ipcMain.handle('microphone:get-permission', () => getMicrophonePermissionStatus());
+  ipcMain.handle('microphone:request-permission', () => requestMicrophonePermission());
+}
 
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -16,7 +27,7 @@ function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      preload: join(currentDir, 'preload.js'),
+      preload: join(currentDir, 'preload.cjs'),
     },
   });
 
@@ -30,6 +41,8 @@ function createMainWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  configureMediaPermissionHandlers(session.defaultSession);
+  registerIpcHandlers();
   createMainWindow();
 
   app.on('activate', () => {
