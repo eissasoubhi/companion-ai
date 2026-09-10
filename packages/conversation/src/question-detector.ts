@@ -27,8 +27,8 @@ const directQuestionPatterns: readonly RegExp[] = [
 ];
 
 const indirectQuestionPatterns: readonly RegExp[] = [
-  /\b(?:i(?:'d| would) like to (?:know|understand|hear)|i(?:'m| am) curious (?:about|to know)|i wonder)\b/i,
-  /\b(?:j'aimerais (?:savoir|comprendre)|je voudrais (?:savoir|comprendre)|je me demande)\b/i,
+  /\b(?:i(?:['’]d| would) like to (?:know|understand|hear)|i(?:['’]m| am) curious (?:about|to know)|i wonder)\b/i,
+  /\b(?:j['’]aimerais (?:savoir|comprendre)|je voudrais (?:savoir|comprendre)|je me demande)\b/i,
 ];
 
 const incompletePatterns: readonly RegExp[] = [
@@ -105,7 +105,7 @@ export function detectQuestion(
   let confidence = 0.08;
 
   if (text.endsWith('?')) {
-    confidence += 0.36;
+    confidence += 0.55;
     reasons.push('question-mark');
   }
 
@@ -115,7 +115,7 @@ export function detectQuestion(
   }
 
   if (indirectQuestionPatterns.some((pattern) => pattern.test(text))) {
-    confidence += 0.5;
+    confidence += 0.58;
     reasons.push('indirect-question-form');
   }
 
