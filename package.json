@@ -1,6 +1,7 @@
 {
   "name": "companion-ai",
   "private": true,
+  "packageManager": "pnpm@10.34.5",
   "scripts": {
     "build": "turbo run build",
     "check": "turbo run lint typecheck test",
