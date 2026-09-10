@@ -7,10 +7,10 @@ export type MicrophoneDiagnosticState =
 
 export interface MicrophoneDiagnosticResult {
   readonly state: Exclude<MicrophoneDiagnosticState, 'idle' | 'checking'>;
-  readonly deviceLabel?: string;
-  readonly signalDetected?: boolean;
+  readonly deviceLabel?: string | undefined;
+  readonly signalDetected?: boolean | undefined;
   readonly message: string;
-  readonly action?: string;
+  readonly action?: string | undefined;
 }
 
 interface MicrophoneDependencies {
@@ -123,22 +123,15 @@ export async function runMicrophoneDiagnostic(
   try {
     let permission = await dependencies.getPermissionStatus();
     const initialFailure = permissionFailure(permission);
-    if (initialFailure) {
-      return initialFailure;
-    }
+    if (initialFailure) return initialFailure;
 
     if (permission === 'not-determined') {
       permission = await dependencies.requestPermission();
       const requestedFailure = permissionFailure(permission);
-      if (requestedFailure) {
-        return requestedFailure;
-      }
+      if (requestedFailure) return requestedFailure;
     }
 
-    const stream = await dependencies.getUserMedia({
-      audio: true,
-      video: false,
-    });
+    const stream = await dependencies.getUserMedia({ audio: true, video: false });
 
     try {
       const track = stream.getAudioTracks()[0];
@@ -153,8 +146,7 @@ export async function runMicrophoneDiagnostic(
       const devices = await dependencies.enumerateDevices();
       const settings = track.getSettings();
       const device = devices.find(
-        (candidate) =>
-          candidate.kind === 'audioinput' && candidate.deviceId === settings.deviceId,
+        (candidate) => candidate.kind === 'audioinput' && candidate.deviceId === settings.deviceId,
       );
       const signalDetected = await detectSignal(stream, dependencies.createAudioContext);
       const deviceLabel = device?.label || track.label || 'Default microphone';
@@ -171,9 +163,7 @@ export async function runMicrophoneDiagnostic(
           : 'Speak while running diagnostics again if you want to confirm the input level.',
       };
     } finally {
-      for (const track of stream.getTracks()) {
-        track.stop();
-      }
+      for (const track of stream.getTracks()) track.stop();
     }
   } catch (error) {
     return describeMicrophoneError(error);
