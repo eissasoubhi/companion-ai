@@ -1,0 +1,15 @@
+appId: ai.companion.desktop
+productName: Companion AI
+
+directories:
+  output: release
+
+files:
+  - dist/**
+  - package.json
+
+mac:
+  minimumSystemVersion: "13.0.0"
+  extendInfo:
+    NSMicrophoneUsageDescription: Companion AI uses your microphone to transcribe your side of conversations when you start a live session.
+    NSAudioCaptureUsageDescription: Companion AI captures system audio during live sessions so it can transcribe the remote side of the conversation.
