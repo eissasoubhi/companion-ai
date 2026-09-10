@@ -1,0 +1,46 @@
+import { app, BrowserWindow } from 'electron';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
+
+function createMainWindow(): BrowserWindow {
+  const window = new BrowserWindow({
+    width: 920,
+    height: 720,
+    minWidth: 720,
+    minHeight: 560,
+    show: false,
+    title: 'Companion AI',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: join(currentDir, 'preload.js'),
+    },
+  });
+
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event) => event.preventDefault());
+  window.once('ready-to-show', () => window.show());
+
+  void window.loadFile(join(currentDir, '../renderer/index.html'));
+
+  return window;
+}
+
+app.whenReady().then(() => {
+  createMainWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createMainWindow();
+    }
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
