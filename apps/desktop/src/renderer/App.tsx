@@ -13,8 +13,8 @@ interface PreflightCheck {
   readonly label: string;
   readonly description: string;
   readonly state: CheckState;
-  readonly detail?: string;
-  readonly action?: string;
+  readonly detail?: string | undefined;
+  readonly action?: string | undefined;
 }
 
 function stateLabel(state: CheckState): string {
@@ -132,10 +132,7 @@ export function App() {
       <section className="check-list" aria-label="Preflight checks" aria-live="polite">
         {checks.map((check) => (
           <article className="check-card" key={check.id}>
-            <span
-              className={`status-dot status-${check.state}`}
-              aria-hidden="true"
-            />
+            <span className={`status-dot status-${check.state}`} aria-hidden="true" />
             <div className="check-copy">
               <div className="check-heading">
                 <h3>{check.label}</h3>
