@@ -59,13 +59,15 @@ export class TranscriptionSession {
       ),
     ]);
 
-    if (localResult.status === 'rejected' || remoteResult.status === 'rejected') {
-      const openedChannels: Promise<void>[] = [];
-      if (localResult.status === 'fulfilled') openedChannels.push(localResult.value.close());
-      if (remoteResult.status === 'fulfilled') openedChannels.push(remoteResult.value.close());
-      await Promise.allSettled(openedChannels);
+    if (localResult.status === 'rejected') {
+      if (remoteResult.status === 'fulfilled') {
+        await Promise.allSettled([remoteResult.value.close()]);
+      }
+      throw localResult.reason;
+    }
 
-      if (localResult.status === 'rejected') throw localResult.reason;
+    if (remoteResult.status === 'rejected') {
+      await Promise.allSettled([localResult.value.close()]);
       throw remoteResult.reason;
     }
 
