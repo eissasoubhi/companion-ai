@@ -153,6 +153,10 @@ function transcriptFromResults(message: DeepgramResultsMessage): string {
 function parseResultsMessage(value: unknown): DeepgramResultsMessage | null {
   if (!isDeepgramResultsMessage(value)) return null;
 
+  const start = optionalNumber(value.start);
+  const duration = optionalNumber(value.duration);
+  const isFinal = optionalBoolean(value.is_final);
+  const speechFinal = optionalBoolean(value.speech_final);
   const channel = isRecord(value.channel) ? value.channel : undefined;
   const rawAlternatives = Array.isArray(channel?.alternatives) ? channel.alternatives : undefined;
   const transcript =
@@ -166,16 +170,10 @@ function parseResultsMessage(value: unknown): DeepgramResultsMessage | null {
 
   return {
     type: 'Results',
-    ...(optionalNumber(value.start) === undefined ? {} : { start: optionalNumber(value.start) }),
-    ...(optionalNumber(value.duration) === undefined
-      ? {}
-      : { duration: optionalNumber(value.duration) }),
-    ...(optionalBoolean(value.is_final) === undefined
-      ? {}
-      : { is_final: optionalBoolean(value.is_final) }),
-    ...(optionalBoolean(value.speech_final) === undefined
-      ? {}
-      : { speech_final: optionalBoolean(value.speech_final) }),
+    ...(start === undefined ? {} : { start }),
+    ...(duration === undefined ? {} : { duration }),
+    ...(isFinal === undefined ? {} : { is_final: isFinal }),
+    ...(speechFinal === undefined ? {} : { speech_final: speechFinal }),
     ...(channelIndex === undefined ? {} : { channel_index: channelIndex }),
     ...(transcript === undefined
       ? {}
