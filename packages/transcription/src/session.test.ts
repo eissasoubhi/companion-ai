@@ -41,12 +41,19 @@ class FailingProvider implements TranscriptionProvider {
     this.id = id;
   }
 
-  async connect(): Promise<TranscriptionConnection> {
+  async connect(
+    _request: TranscriptionConnectRequest,
+    _onEvent: TranscriptionProviderEventHandler,
+  ): Promise<TranscriptionConnection> {
     throw new Error('provider connect failed');
   }
 }
 
-function chunk(source: 'local' | 'remote', sequence: number, sessionId = 'meeting-1'): AudioChunk {
+function chunk(
+  source: AudioChunk['source'],
+  sequence: number,
+  sessionId = 'meeting-1',
+): AudioChunk {
   return {
     sessionId,
     source,
@@ -110,6 +117,23 @@ describe('TranscriptionSession', () => {
     expect(remote.writes).toHaveLength(0);
   });
 
+  it('rejects unknown audio instead of routing it into the remote channel', async () => {
+    const local = new FakeProvider('local-provider');
+    const remote = new FakeProvider('remote-provider');
+    const session = await TranscriptionSession.open({
+      sessionId: 'meeting-1',
+      localProvider: local,
+      remoteProvider: remote,
+      emit: () => undefined,
+    });
+
+    await expect(session.writeAudio(chunk('unknown', 0))).rejects.toThrow(
+      'only accepts local or remote',
+    );
+    expect(local.writes).toHaveLength(0);
+    expect(remote.writes).toHaveLength(0);
+  });
+
   it('closes the channel that opened when the other provider fails to connect', async () => {
     const local = new FakeProvider('local-provider');
     const remote = new FailingProvider('remote-provider');
@@ -123,7 +147,7 @@ describe('TranscriptionSession', () => {
       }),
     ).rejects.toThrow('provider connect failed');
 
-    expect(local.close).toHaveBeenCalledOnce();
+    expect(local.close).toHaveBeenCalledTimes(1);
   });
 
   it('closes both providers and rejects later writes', async () => {
@@ -138,8 +162,8 @@ describe('TranscriptionSession', () => {
 
     await session.close();
 
-    expect(local.close).toHaveBeenCalledOnce();
-    expect(remote.close).toHaveBeenCalledOnce();
+    expect(local.close).toHaveBeenCalledTimes(1);
+    expect(remote.close).toHaveBeenCalledTimes(1);
     await expect(session.writeAudio(chunk('local', 0))).rejects.toThrow('closed');
   });
 });
