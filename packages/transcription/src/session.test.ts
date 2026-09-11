@@ -56,7 +56,10 @@ describe('TranscriptionSession', () => {
       sessionId: 'meeting-1',
       localProvider: local,
       remoteProvider: remote,
-      emit: (event) => events.push(`${event.type}:${event.source}`),
+      emit: (event) => {
+        const source = event.type === 'transcript' ? event.segment.source : event.source;
+        events.push(`${event.type}:${source}`);
+      },
     });
 
     await Promise.all([
