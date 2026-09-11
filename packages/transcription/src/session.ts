@@ -44,7 +44,7 @@ export class TranscriptionSession {
       ...(options.language === undefined ? {} : { language: options.language }),
     };
 
-    const [local, remote] = await Promise.all([
+    const [localResult, remoteResult] = await Promise.allSettled([
       TranscriptionChannel.open(
         options.localProvider,
         { ...requestBase, source: 'local' },
@@ -59,7 +59,17 @@ export class TranscriptionSession {
       ),
     ]);
 
-    return new TranscriptionSession(options.sessionId, local, remote);
+    if (localResult.status === 'rejected' || remoteResult.status === 'rejected') {
+      const openedChannels: Promise<void>[] = [];
+      if (localResult.status === 'fulfilled') openedChannels.push(localResult.value.close());
+      if (remoteResult.status === 'fulfilled') openedChannels.push(remoteResult.value.close());
+      await Promise.allSettled(openedChannels);
+
+      if (localResult.status === 'rejected') throw localResult.reason;
+      throw remoteResult.reason;
+    }
+
+    return new TranscriptionSession(options.sessionId, localResult.value, remoteResult.value);
   }
 
   async writeAudio(chunk: AudioChunk): Promise<void> {
