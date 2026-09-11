@@ -53,7 +53,7 @@ describe('FixedFramePcm16Encoder', () => {
     expect(encoder.pendingSamples).toBe(0);
   });
 
-  it('keeps remainder timestamps continuous across pushes', () => {
+  it('keeps remainder timestamps continuous across pushes even when capture timestamps jump', () => {
     const encoder = new FixedFramePcm16Encoder({
       sampleRateHz: 1_000,
       frameDurationMs: 10,
@@ -63,9 +63,23 @@ describe('FixedFramePcm16Encoder', () => {
     expect(first[0]?.startedAtMs).toBe(5_000);
     expect(encoder.pendingSamples).toBe(5);
 
-    const second = encoder.push(new Float32Array(5), 5_015);
+    const second = encoder.push(new Float32Array(5), 9_999);
     expect(second[0]?.startedAtMs).toBe(5_010);
     expect(second[0]?.sequence).toBe(1);
+  });
+
+  it('reset clears buffered samples and restarts sequence/timestamp state', () => {
+    const encoder = new FixedFramePcm16Encoder({
+      sampleRateHz: 1_000,
+      frameDurationMs: 10,
+    });
+
+    encoder.push(new Float32Array(15), 1_000);
+    encoder.reset();
+
+    expect(encoder.pendingSamples).toBe(0);
+    const frames = encoder.push(new Float32Array(10), 2_000);
+    expect(frames[0]).toMatchObject({ sequence: 0, startedAtMs: 2_000 });
   });
 });
 
