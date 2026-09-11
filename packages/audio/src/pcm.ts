@@ -3,13 +3,18 @@ export function downmixToMono(channels: readonly Float32Array[]): Float32Array {
     throw new RangeError('At least one audio channel is required.');
   }
 
-  const frameCount = channels[0]?.length ?? 0;
+  const firstChannel = channels[0];
+  if (!firstChannel) {
+    throw new RangeError('At least one audio channel is required.');
+  }
+
+  const frameCount = firstChannel.length;
   if (channels.some((channel) => channel.length !== frameCount)) {
     throw new RangeError('All audio channels must contain the same number of frames.');
   }
 
   if (channels.length === 1) {
-    return new Float32Array(channels[0]);
+    return new Float32Array(firstChannel);
   }
 
   const mono = new Float32Array(frameCount);
