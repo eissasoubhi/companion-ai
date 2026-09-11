@@ -20,35 +20,27 @@ class FakeSocket implements DeepgramSocket {
   send(data: string | Uint8Array): void {
     this.sent.push(data);
   }
-
   onOpen(handler: () => void): void {
     this.#openHandlers.push(handler);
   }
-
   onMessage(handler: (event: DeepgramSocketMessage) => void): void {
     this.#messageHandlers.push(handler);
   }
-
   onError(handler: (error: unknown) => void): void {
     this.#errorHandlers.push(handler);
   }
-
   onClose(handler: (event: DeepgramSocketCloseEvent) => void): void {
     this.#closeHandlers.push(handler);
   }
-
   open(): void {
     for (const handler of this.#openHandlers) handler();
   }
-
   message(data: string): void {
     for (const handler of this.#messageHandlers) handler({ data });
   }
-
   error(error: unknown): void {
     for (const handler of this.#errorHandlers) handler(error);
   }
-
   closed(event: DeepgramSocketCloseEvent): void {
     for (const handler of this.#closeHandlers) handler(event);
   }
@@ -98,18 +90,18 @@ describe('DeepgramNova3Provider', () => {
     expect(url.searchParams.getAll('keyterm')).toEqual(['Symfony', 'RabbitMQ']);
   });
 
-  it('maps Deepgram partial/final Results into provider-neutral events with stable ids', async () => {
+  it('maps Deepgram partial/final Results onto the first audio chunk timeline with stable ids', async () => {
     const socket = new FakeSocket();
     const events: TranscriptionProviderEvent[] = [];
-    let now = 50_000;
     const provider = new DeepgramNova3Provider(
       { createSocket: () => socket, audioFormat: format },
-      () => now,
+      () => 50_000,
     );
 
     const connectionPromise = provider.connect(request, (event) => events.push(event));
     socket.open();
     const connection = await connectionPromise;
+    await connection.write(chunk());
 
     socket.message(
       JSON.stringify({
@@ -117,7 +109,6 @@ describe('DeepgramNova3Provider', () => {
         start: 1.25,
         duration: 0.5,
         is_final: false,
-        speech_final: false,
         channel_index: [0, 1],
         channel: { alternatives: [{ transcript: 'Tell me about' }] },
       }),
@@ -140,20 +131,17 @@ describe('DeepgramNova3Provider', () => {
       segmentId: 'dg:0:1250',
       text: 'Tell me about',
       isFinal: false,
-      startedAtMs: 51_250,
-      endedAtMs: 51_750,
+      startedAtMs: 11_250,
+      endedAtMs: 11_750,
     });
     expect(events[2]).toMatchObject({
       type: 'transcript',
       segmentId: 'dg:0:1250',
       text: 'Tell me about Symfony',
       isFinal: true,
-      startedAtMs: 51_250,
-      endedAtMs: 52_050,
+      startedAtMs: 11_250,
+      endedAtMs: 12_050,
     });
-
-    now = 51_000;
-    await connection.write(chunk());
     expect(socket.sent[0]).toEqual(chunk().data);
   });
 
@@ -168,9 +156,9 @@ describe('DeepgramNova3Provider', () => {
     socket.open();
     const connection = await connectionPromise;
 
-    await expect(
-      connection.write({ ...chunk(), sampleRateHz: 48_000 }),
-    ).rejects.toThrow('does not match');
+    await expect(connection.write({ ...chunk(), sampleRateHz: 48_000 })).rejects.toThrow(
+      'does not match',
+    );
     expect(socket.sent).toHaveLength(0);
   });
 
@@ -209,24 +197,29 @@ describe('DeepgramNova3Provider', () => {
     });
   });
 
-  it('finalizes and closes the stream explicitly', async () => {
+  it('waits for the provider close so final results are not cut off', async () => {
     const socket = new FakeSocket();
     const events: TranscriptionProviderEvent[] = [];
     const provider = new DeepgramNova3Provider({
       createSocket: () => socket,
       audioFormat: format,
+      closeTimeoutMs: 50,
     });
 
     const connectionPromise = provider.connect(request, (event) => events.push(event));
     socket.open();
     const connection = await connectionPromise;
-    await connection.close();
+    const closePromise = connection.close();
 
     expect(socket.sent).toEqual([
       JSON.stringify({ type: 'Finalize' }),
       JSON.stringify({ type: 'CloseStream' }),
     ]);
-    expect(socket.close).toHaveBeenCalledWith(1000, 'client-close');
+    expect(socket.close).not.toHaveBeenCalled();
+
+    socket.closed({ code: 1000, reason: 'client-close' });
+    await closePromise;
+
     expect(events.at(-1)).toEqual({ type: 'closed', reason: 'client-close' });
   });
 });
