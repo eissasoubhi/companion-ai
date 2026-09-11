@@ -52,15 +52,15 @@ export function configureSystemAudioCapture(session: Session): void {
   const capability = getSystemAudioCapability();
 
   if (capability.mode !== 'macos-system-picker') {
-    session.setDisplayMediaRequestHandler((_request, callback) => callback(null));
+    session.setDisplayMediaRequestHandler((_request, callback) => callback({}));
     return;
   }
 
   session.setDisplayMediaRequestHandler(
     (_request, callback) => {
       // On supported macOS versions Electron delegates to the native picker and
-      // this fallback handler should not run. Fail closed if it unexpectedly does.
-      callback(null);
+      // this fallback handler should not run. Empty streams fail closed if it does.
+      callback({});
     },
     { useSystemPicker: true },
   );
