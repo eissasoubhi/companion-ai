@@ -17,6 +17,15 @@ declare global {
     readonly reason?: string | undefined;
   }
 
+  interface NetworkDiagnosticResult {
+    readonly state: 'ready' | 'blocked' | 'error';
+    readonly host: string;
+    readonly latencyMs?: number | undefined;
+    readonly httpStatus?: number | undefined;
+    readonly message: string;
+    readonly action?: string | undefined;
+  }
+
   interface Window {
     companion: {
       readonly platform: string;
@@ -26,6 +35,9 @@ declare global {
       };
       readonly systemAudio: {
         getCapability(): Promise<SystemAudioCapability>;
+      };
+      readonly network: {
+        runDiagnostic(): Promise<NetworkDiagnosticResult>;
       };
     };
   }

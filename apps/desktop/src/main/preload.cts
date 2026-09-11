@@ -9,4 +9,7 @@ contextBridge.exposeInMainWorld('companion', {
   systemAudio: {
     getCapability: () => ipcRenderer.invoke('system-audio:get-capability'),
   },
+  network: {
+    runDiagnostic: () => ipcRenderer.invoke('network:run-diagnostic'),
+  },
 });
