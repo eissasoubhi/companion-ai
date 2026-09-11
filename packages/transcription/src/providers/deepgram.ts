@@ -1,5 +1,6 @@
 import type {
   AudioChunk,
+  AudioEncoding,
   TranscriptionConnectRequest,
   TranscriptionConnection,
   TranscriptionProvider,
@@ -31,8 +32,15 @@ export interface DeepgramSocket {
  */
 export type DeepgramSocketFactory = (url: string) => DeepgramSocket;
 
+export interface DeepgramAudioFormat {
+  readonly encoding: AudioEncoding;
+  readonly sampleRateHz: number;
+  readonly channels: number;
+}
+
 export interface DeepgramProviderConfig {
   readonly createSocket: DeepgramSocketFactory;
+  readonly audioFormat: DeepgramAudioFormat;
   readonly endpoint?: string | undefined;
   readonly model?: string | undefined;
   readonly language?: string | undefined;
@@ -42,6 +50,8 @@ export interface DeepgramProviderConfig {
   readonly numerals?: boolean | undefined;
   readonly openTimeoutMs?: number | undefined;
 }
+
+export type DeepgramListenOptions = Omit<DeepgramProviderConfig, 'createSocket'>;
 
 interface DeepgramResultsMessage {
   readonly type: 'Results';
@@ -68,10 +78,39 @@ interface DeepgramErrorMessage {
 const DEFAULT_ENDPOINT = 'wss://api.eu.deepgram.com/v1/listen';
 const DEFAULT_OPEN_TIMEOUT_MS = 8_000;
 
-function encodeQuery(config: DeepgramProviderConfig, request: TranscriptionConnectRequest): string {
+function deepgramEncoding(encoding: AudioEncoding): string {
+  switch (encoding) {
+    case 'pcm-s16le':
+      return 'linear16';
+    case 'pcm-f32le':
+      return 'linear32';
+    case 'opus':
+      return 'opus';
+  }
+}
+
+function assertAudioFormat(format: DeepgramAudioFormat): void {
+  if (!Number.isFinite(format.sampleRateHz) || format.sampleRateHz <= 0) {
+    throw new RangeError('Deepgram sample rate must be a positive number.');
+  }
+
+  if (!Number.isInteger(format.channels) || format.channels <= 0) {
+    throw new RangeError('Deepgram channel count must be a positive integer.');
+  }
+}
+
+function encodeQuery(
+  config: DeepgramListenOptions,
+  request: TranscriptionConnectRequest,
+): string {
+  assertAudioFormat(config.audioFormat);
+
   const params = new URLSearchParams();
   params.set('model', config.model ?? 'nova-3');
   params.set('language', request.language ?? config.language ?? 'multi');
+  params.set('encoding', deepgramEncoding(config.audioFormat.encoding));
+  params.set('sample_rate', String(config.audioFormat.sampleRateHz));
+  params.set('channels', String(config.audioFormat.channels));
   params.set('interim_results', request.partialResults ? 'true' : 'false');
   params.set('endpointing', String(config.endpointingMs ?? 100));
   params.set('smart_format', String(config.smartFormat ?? true));
@@ -83,17 +122,6 @@ function encodeQuery(config: DeepgramProviderConfig, request: TranscriptionConne
   }
 
   return params.toString();
-}
-
-function deepgramEncoding(chunk: AudioChunk): string {
-  switch (chunk.encoding) {
-    case 'pcm-s16le':
-      return 'linear16';
-    case 'opus':
-      return 'opus';
-    case 'pcm-f32le':
-      throw new Error('Deepgram Nova-3 adapter does not support pcm-f32le raw audio.');
-  }
 }
 
 function decodeText(data: DeepgramSocketMessage['data']): string | null {
@@ -118,12 +146,21 @@ function isRetryableProviderError(code: string): boolean {
   );
 }
 
+function sameAudioFormat(chunk: AudioChunk, format: DeepgramAudioFormat): boolean {
+  return (
+    chunk.encoding === format.encoding &&
+    chunk.sampleRateHz === format.sampleRateHz &&
+    chunk.channels === format.channels
+  );
+}
+
 export class DeepgramNova3Provider implements TranscriptionProvider {
   readonly id = 'deepgram:nova-3';
   readonly #config: DeepgramProviderConfig;
   readonly #clock: () => number;
 
   constructor(config: DeepgramProviderConfig, clock: () => number = () => Date.now()) {
+    assertAudioFormat(config.audioFormat);
     this.#config = config;
     this.#clock = clock;
   }
@@ -132,13 +169,12 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
     request: TranscriptionConnectRequest,
     onEvent: TranscriptionProviderEventHandler,
   ): Promise<TranscriptionConnection> {
-    const endpoint = this.#config.endpoint ?? DEFAULT_ENDPOINT;
-    const baseUrl = `${endpoint}?${encodeQuery(this.#config, request)}`;
-    const socket = this.#config.createSocket(baseUrl);
+    const url = buildDeepgramListenUrl(request, this.#config);
+    const socket = this.#config.createSocket(url);
     const connectionStartedAtMs = this.#clock();
     const openTimeoutMs = this.#config.openTimeoutMs ?? DEFAULT_OPEN_TIMEOUT_MS;
     let closed = false;
-    let audioFormat: { encoding: string; sampleRateHz: number; channels: number } | undefined;
+    let openedSuccessfully = false;
 
     const opened = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -148,6 +184,7 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
 
       socket.onOpen(() => {
         clearTimeout(timeout);
+        openedSuccessfully = true;
         onEvent({ type: 'ready' });
         resolve();
       });
@@ -155,7 +192,18 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
       socket.onError((error) => {
         clearTimeout(timeout);
         const message = error instanceof Error ? error.message : 'Deepgram WebSocket error';
-        reject(new Error(message));
+
+        if (!openedSuccessfully) {
+          reject(new Error(message));
+          return;
+        }
+
+        onEvent({
+          type: 'error',
+          code: 'websocket-error',
+          message,
+          retryable: true,
+        });
       });
     });
 
@@ -235,21 +283,8 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
 
     return {
       write: async (chunk) => {
-        const encoding = deepgramEncoding(chunk);
-        const format = {
-          encoding,
-          sampleRateHz: chunk.sampleRateHz,
-          channels: chunk.channels,
-        };
-
-        if (!audioFormat) {
-          audioFormat = format;
-        } else if (
-          audioFormat.encoding !== format.encoding ||
-          audioFormat.sampleRateHz !== format.sampleRateHz ||
-          audioFormat.channels !== format.channels
-        ) {
-          throw new Error('Audio format changed during an active Deepgram stream.');
+        if (!sameAudioFormat(chunk, this.#config.audioFormat)) {
+          throw new Error('Audio chunk format does not match the active Deepgram stream.');
         }
 
         socket.send(chunk.data);
@@ -268,8 +303,8 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
 
 export function buildDeepgramListenUrl(
   request: TranscriptionConnectRequest,
-  config: Omit<DeepgramProviderConfig, 'createSocket'>,
+  config: DeepgramListenOptions,
 ): string {
   const endpoint = config.endpoint ?? DEFAULT_ENDPOINT;
-  return `${endpoint}?${encodeQuery(config as DeepgramProviderConfig, request)}`;
+  return `${endpoint}?${encodeQuery(config, request)}`;
 }
