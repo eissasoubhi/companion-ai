@@ -175,9 +175,7 @@ function parseResultsMessage(value: unknown): DeepgramResultsMessage | null {
     ...(isFinal === undefined ? {} : { is_final: isFinal }),
     ...(speechFinal === undefined ? {} : { speech_final: speechFinal }),
     ...(channelIndex === undefined ? {} : { channel_index: channelIndex }),
-    ...(transcript === undefined
-      ? {}
-      : { channel: { alternatives: [{ transcript }] } }),
+    ...(transcript === undefined ? {} : { channel: { alternatives: [{ transcript }] } }),
   };
 }
 
@@ -229,6 +227,7 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
     let closed = false;
     let closeRequested = false;
     let openedSuccessfully = false;
+    let terminalProviderFailure = false;
     let rejectOpening: ((error: Error) => void) | undefined;
     let resolveClosed: (() => void) | undefined;
 
@@ -264,6 +263,7 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
           reject(new Error(message));
           return;
         }
+        if (closed || terminalProviderFailure) return;
         onEvent({
           type: 'error',
           code: 'websocket-error',
@@ -274,6 +274,7 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
     });
 
     socket.onMessage((event) => {
+      if (closed) return;
       const raw = decodeText(event.data);
       if (!raw) return;
 
@@ -281,6 +282,7 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
       try {
         parsed = JSON.parse(raw) as unknown;
       } catch {
+        terminalProviderFailure = true;
         onEvent({
           type: 'error',
           code: 'invalid-provider-message',
@@ -324,11 +326,13 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
       const isError = parsed.err_code !== undefined || parsed.type === 'Error';
 
       if (isError) {
+        const retryable = isRetryableProviderError(errorCode);
+        if (!retryable) terminalProviderFailure = true;
         onEvent({
           type: 'error',
           code: errorCode,
           message: errorMessage,
-          retryable: isRetryableProviderError(errorCode),
+          retryable,
         });
       }
     });
@@ -340,7 +344,7 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
         );
       }
 
-      if (!closeRequested && event.code && event.code !== 1000) {
+      if (!closeRequested && !terminalProviderFailure && event.code && event.code !== 1000) {
         onEvent({
           type: 'error',
           code: `websocket-close-${event.code}`,
@@ -355,6 +359,12 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
 
     return {
       write: async (chunk) => {
+        if (closed || closeRequested || terminalProviderFailure) {
+          throw new Error('Deepgram stream is not writable.');
+        }
+        if (chunk.sessionId !== request.sessionId || chunk.source !== request.source) {
+          throw new Error('Audio chunk does not belong to the active transcription stream.');
+        }
         if (!sameAudioFormat(chunk, this.#config.audioFormat)) {
           throw new Error('Audio chunk format does not match the active Deepgram stream.');
         }
