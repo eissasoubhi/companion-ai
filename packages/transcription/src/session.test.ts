@@ -34,6 +34,18 @@ class FakeProvider implements TranscriptionProvider {
   }
 }
 
+class FailingProvider implements TranscriptionProvider {
+  readonly id: string;
+
+  constructor(id: string) {
+    this.id = id;
+  }
+
+  async connect(): Promise<TranscriptionConnection> {
+    throw new Error('provider connect failed');
+  }
+}
+
 function chunk(source: 'local' | 'remote', sequence: number, sessionId = 'meeting-1'): AudioChunk {
   return {
     sessionId,
@@ -96,6 +108,22 @@ describe('TranscriptionSession', () => {
     );
     expect(local.writes).toHaveLength(0);
     expect(remote.writes).toHaveLength(0);
+  });
+
+  it('closes the channel that opened when the other provider fails to connect', async () => {
+    const local = new FakeProvider('local-provider');
+    const remote = new FailingProvider('remote-provider');
+
+    await expect(
+      TranscriptionSession.open({
+        sessionId: 'meeting-1',
+        localProvider: local,
+        remoteProvider: remote,
+        emit: () => undefined,
+      }),
+    ).rejects.toThrow('provider connect failed');
+
+    expect(local.close).toHaveBeenCalledOnce();
   });
 
   it('closes both providers and rejects later writes', async () => {
