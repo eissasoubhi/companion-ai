@@ -77,6 +77,9 @@ export class TranscriptionSession {
     if (chunk.sessionId !== this.sessionId) {
       throw new Error('Audio chunk does not belong to this transcription session.');
     }
+    if (chunk.source !== 'local' && chunk.source !== 'remote') {
+      throw new Error('Transcription session only accepts local or remote audio sources.');
+    }
 
     const channel = chunk.source === 'local' ? this.#local : this.#remote;
     await channel.writeAudio(chunk);
