@@ -49,6 +49,7 @@ export interface DeepgramProviderConfig {
   readonly smartFormat?: boolean | undefined;
   readonly numerals?: boolean | undefined;
   readonly openTimeoutMs?: number | undefined;
+  readonly closeTimeoutMs?: number | undefined;
 }
 
 export type DeepgramListenOptions = Omit<DeepgramProviderConfig, 'createSocket'>;
@@ -77,6 +78,7 @@ interface DeepgramErrorMessage {
 
 const DEFAULT_ENDPOINT = 'wss://api.eu.deepgram.com/v1/listen';
 const DEFAULT_OPEN_TIMEOUT_MS = 8_000;
+const DEFAULT_CLOSE_TIMEOUT_MS = 2_000;
 
 function deepgramEncoding(encoding: AudioEncoding): string {
   switch (encoding) {
@@ -93,7 +95,6 @@ function assertAudioFormat(format: DeepgramAudioFormat): void {
   if (!Number.isFinite(format.sampleRateHz) || format.sampleRateHz <= 0) {
     throw new RangeError('Deepgram sample rate must be a positive number.');
   }
-
   if (!Number.isInteger(format.channels) || format.channels <= 0) {
     throw new RangeError('Deepgram channel count must be a positive integer.');
   }
@@ -104,7 +105,6 @@ function encodeQuery(
   request: TranscriptionConnectRequest,
 ): string {
   assertAudioFormat(config.audioFormat);
-
   const params = new URLSearchParams();
   params.set('model', config.model ?? 'nova-3');
   params.set('language', request.language ?? config.language ?? 'multi');
@@ -120,7 +120,6 @@ function encodeQuery(
     const normalized = keyterm.trim();
     if (normalized) params.append('keyterm', normalized);
   }
-
   return params.toString();
 }
 
@@ -173,10 +172,28 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
     const socket = this.#config.createSocket(url);
     const connectionStartedAtMs = this.#clock();
     const openTimeoutMs = this.#config.openTimeoutMs ?? DEFAULT_OPEN_TIMEOUT_MS;
+    const closeTimeoutMs = this.#config.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
+    let streamOriginMs = connectionStartedAtMs;
+    let hasWrittenAudio = false;
     let closed = false;
+    let closeRequested = false;
     let openedSuccessfully = false;
+    let rejectOpening: ((error: Error) => void) | undefined;
+    let resolveClosed: (() => void) | undefined;
+
+    const closedPromise = new Promise<void>((resolve) => {
+      resolveClosed = resolve;
+    });
+
+    const finishClosed = (reason?: string): void => {
+      if (closed) return;
+      closed = true;
+      onEvent({ type: 'closed', ...(reason ? { reason } : {}) });
+      resolveClosed?.();
+    };
 
     const opened = new Promise<void>((resolve, reject) => {
+      rejectOpening = reject;
       const timeout = setTimeout(() => {
         reject(new Error(`Deepgram WebSocket did not open within ${openTimeoutMs}ms.`));
         socket.close(1000, 'open-timeout');
@@ -192,12 +209,10 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
       socket.onError((error) => {
         clearTimeout(timeout);
         const message = error instanceof Error ? error.message : 'Deepgram WebSocket error';
-
         if (!openedSuccessfully) {
           reject(new Error(message));
           return;
         }
-
         onEvent({
           type: 'error',
           code: 'websocket-error',
@@ -230,7 +245,7 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
 
         const relativeStartMs = Math.max(0, (message.start ?? 0) * 1_000);
         const durationMs = Math.max(0, (message.duration ?? 0) * 1_000);
-        const startedAtMs = connectionStartedAtMs + relativeStartMs;
+        const startedAtMs = streamOriginMs + relativeStartMs;
         const endedAtMs = startedAtMs + durationMs;
         const channel = message.channel_index?.[0] ?? 0;
         const segmentStart = Math.round(relativeStartMs);
@@ -249,7 +264,6 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
       const errorCode = message.err_code ?? message.type ?? 'deepgram-error';
       const errorMessage =
         message.err_msg ?? message.description ?? message.message ?? 'Deepgram provider error';
-
       if (message.err_code || message.type === 'Error') {
         onEvent({
           type: 'error',
@@ -261,10 +275,13 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
     });
 
     socket.onClose((event) => {
-      if (closed) return;
-      closed = true;
+      if (!openedSuccessfully) {
+        rejectOpening?.(
+          new Error(event.reason || 'Deepgram WebSocket closed before it became ready.'),
+        );
+      }
 
-      if (event.code && event.code !== 1000) {
+      if (!closeRequested && event.code && event.code !== 1000) {
         onEvent({
           type: 'error',
           code: `websocket-close-${event.code}`,
@@ -272,11 +289,7 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
           retryable: isRetryableClose(event.code),
         });
       }
-
-      onEvent({
-        type: 'closed',
-        ...(event.reason ? { reason: event.reason } : {}),
-      });
+      finishClosed(event.reason);
     });
 
     await opened;
@@ -286,16 +299,34 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
         if (!sameAudioFormat(chunk, this.#config.audioFormat)) {
           throw new Error('Audio chunk format does not match the active Deepgram stream.');
         }
-
+        if (!hasWrittenAudio) {
+          streamOriginMs = chunk.capturedAtMs;
+          hasWrittenAudio = true;
+        }
         socket.send(chunk.data);
       },
       close: async () => {
-        if (closed) return;
+        if (closed || closeRequested) {
+          await closedPromise;
+          return;
+        }
+
+        closeRequested = true;
         socket.send(JSON.stringify({ type: 'Finalize' }));
         socket.send(JSON.stringify({ type: 'CloseStream' }));
-        closed = true;
-        socket.close(1000, 'client-close');
-        onEvent({ type: 'closed', reason: 'client-close' });
+
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          closedPromise,
+          new Promise<void>((resolve) => {
+            timeout = setTimeout(() => {
+              socket.close(1000, 'client-close-timeout');
+              finishClosed('client-close-timeout');
+              resolve();
+            }, closeTimeoutMs);
+          }),
+        ]);
+        if (timeout) clearTimeout(timeout);
       },
     };
   }
