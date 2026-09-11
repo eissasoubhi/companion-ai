@@ -68,14 +68,6 @@ interface DeepgramResultsMessage {
   };
 }
 
-interface DeepgramErrorMessage {
-  readonly type?: string;
-  readonly err_code?: string;
-  readonly err_msg?: string;
-  readonly description?: string;
-  readonly message?: string;
-}
-
 const DEFAULT_ENDPOINT = 'wss://api.eu.deepgram.com/v1/listen';
 const DEFAULT_OPEN_TIMEOUT_MS = 8_000;
 const DEFAULT_CLOSE_TIMEOUT_MS = 2_000;
@@ -128,6 +120,67 @@ function decodeText(data: DeepgramSocketMessage['data']): string | null {
   if (data instanceof Uint8Array) return new TextDecoder().decode(data);
   if (data instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(data));
   return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function isDeepgramResultsMessage(value: unknown): value is DeepgramResultsMessage {
+  if (!isRecord(value) || value.type !== 'Results') return false;
+  if (value.channel !== undefined && !isRecord(value.channel)) return false;
+  return true;
+}
+
+function transcriptFromResults(message: DeepgramResultsMessage): string {
+  const alternatives = message.channel?.alternatives;
+  if (!Array.isArray(alternatives) || !isRecord(alternatives[0])) return '';
+  return optionalString(alternatives[0].transcript)?.trim() ?? '';
+}
+
+function parseResultsMessage(value: unknown): DeepgramResultsMessage | null {
+  if (!isDeepgramResultsMessage(value)) return null;
+
+  const channel = isRecord(value.channel) ? value.channel : undefined;
+  const rawAlternatives = Array.isArray(channel?.alternatives) ? channel.alternatives : undefined;
+  const transcript =
+    rawAlternatives && isRecord(rawAlternatives[0])
+      ? optionalString(rawAlternatives[0].transcript)
+      : undefined;
+  const rawChannelIndex = Array.isArray(value.channel_index) ? value.channel_index : undefined;
+  const channelIndex = rawChannelIndex?.filter(
+    (item): item is number => typeof item === 'number' && Number.isFinite(item),
+  );
+
+  return {
+    type: 'Results',
+    ...(optionalNumber(value.start) === undefined ? {} : { start: optionalNumber(value.start) }),
+    ...(optionalNumber(value.duration) === undefined
+      ? {}
+      : { duration: optionalNumber(value.duration) }),
+    ...(optionalBoolean(value.is_final) === undefined
+      ? {}
+      : { is_final: optionalBoolean(value.is_final) }),
+    ...(optionalBoolean(value.speech_final) === undefined
+      ? {}
+      : { speech_final: optionalBoolean(value.speech_final) }),
+    ...(channelIndex === undefined ? {} : { channel_index: channelIndex }),
+    ...(transcript === undefined
+      ? {}
+      : { channel: { alternatives: [{ transcript }] } }),
+  };
 }
 
 function isRetryableClose(code: number | undefined): boolean {
@@ -226,9 +279,9 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
       const raw = decodeText(event.data);
       if (!raw) return;
 
-      let message: DeepgramResultsMessage | DeepgramErrorMessage;
+      let parsed: unknown;
       try {
-        message = JSON.parse(raw) as DeepgramResultsMessage | DeepgramErrorMessage;
+        parsed = JSON.parse(raw) as unknown;
       } catch {
         onEvent({
           type: 'error',
@@ -239,32 +292,40 @@ export class DeepgramNova3Provider implements TranscriptionProvider {
         return;
       }
 
-      if (message.type === 'Results') {
-        const transcript = message.channel?.alternatives?.[0]?.transcript?.trim() ?? '';
+      const results = parseResultsMessage(parsed);
+      if (results) {
+        const transcript = transcriptFromResults(results);
         if (!transcript) return;
 
-        const relativeStartMs = Math.max(0, (message.start ?? 0) * 1_000);
-        const durationMs = Math.max(0, (message.duration ?? 0) * 1_000);
+        const relativeStartMs = Math.max(0, (results.start ?? 0) * 1_000);
+        const durationMs = Math.max(0, (results.duration ?? 0) * 1_000);
         const startedAtMs = streamOriginMs + relativeStartMs;
         const endedAtMs = startedAtMs + durationMs;
-        const channel = message.channel_index?.[0] ?? 0;
+        const channel = results.channel_index?.[0] ?? 0;
         const segmentStart = Math.round(relativeStartMs);
 
         onEvent({
           type: 'transcript',
           segmentId: `dg:${channel}:${segmentStart}`,
           text: transcript,
-          isFinal: message.is_final === true,
+          isFinal: results.is_final === true,
           startedAtMs,
           endedAtMs,
         });
         return;
       }
 
-      const errorCode = message.err_code ?? message.type ?? 'deepgram-error';
+      if (!isRecord(parsed)) return;
+      const errorCode =
+        optionalString(parsed.err_code) ?? optionalString(parsed.type) ?? 'deepgram-error';
       const errorMessage =
-        message.err_msg ?? message.description ?? message.message ?? 'Deepgram provider error';
-      if (message.err_code || message.type === 'Error') {
+        optionalString(parsed.err_msg) ??
+        optionalString(parsed.description) ??
+        optionalString(parsed.message) ??
+        'Deepgram provider error';
+      const isError = parsed.err_code !== undefined || parsed.type === 'Error';
+
+      if (isError) {
         onEvent({
           type: 'error',
           code: errorCode,
