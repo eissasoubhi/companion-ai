@@ -162,7 +162,27 @@ describe('DeepgramNova3Provider', () => {
     expect(socket.sent).toHaveLength(0);
   });
 
-  it('maps authentication errors as terminal and network closes as retryable', async () => {
+  it('rejects audio from another session or source', async () => {
+    const socket = new FakeSocket();
+    const provider = new DeepgramNova3Provider({
+      createSocket: () => socket,
+      audioFormat: format,
+    });
+
+    const connectionPromise = provider.connect(request, () => undefined);
+    socket.open();
+    const connection = await connectionPromise;
+
+    await expect(connection.write({ ...chunk(), sessionId: 'session-2' })).rejects.toThrow(
+      'does not belong',
+    );
+    await expect(connection.write({ ...chunk(), source: 'local' })).rejects.toThrow(
+      'does not belong',
+    );
+    expect(socket.sent).toHaveLength(0);
+  });
+
+  it('keeps terminal provider errors terminal when the socket closes afterwards', async () => {
     const socket = new FakeSocket();
     const events: TranscriptionProviderEvent[] = [];
     const provider = new DeepgramNova3Provider({
@@ -172,7 +192,7 @@ describe('DeepgramNova3Provider', () => {
 
     const connectionPromise = provider.connect(request, (event) => events.push(event));
     socket.open();
-    await connectionPromise;
+    const connection = await connectionPromise;
 
     socket.message(
       JSON.stringify({
@@ -181,6 +201,8 @@ describe('DeepgramNova3Provider', () => {
         err_msg: 'Invalid credentials',
       }),
     );
+
+    await expect(connection.write(chunk())).rejects.toThrow('not writable');
     socket.closed({ code: 1013, reason: 'Try again later' });
 
     expect(events).toContainEqual({
@@ -189,12 +211,50 @@ describe('DeepgramNova3Provider', () => {
       message: 'Invalid credentials',
       retryable: false,
     });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: 'error', code: 'websocket-close-1013' }),
+    );
+    expect(events.at(-1)).toEqual({ type: 'closed', reason: 'Try again later' });
+  });
+
+  it('maps unexpected network closes as retryable', async () => {
+    const socket = new FakeSocket();
+    const events: TranscriptionProviderEvent[] = [];
+    const provider = new DeepgramNova3Provider({
+      createSocket: () => socket,
+      audioFormat: format,
+    });
+
+    const connectionPromise = provider.connect(request, (event) => events.push(event));
+    socket.open();
+    const connection = await connectionPromise;
+    socket.closed({ code: 1013, reason: 'Try again later' });
+
     expect(events).toContainEqual({
       type: 'error',
       code: 'websocket-close-1013',
       message: 'Try again later',
       retryable: true,
     });
+    await expect(connection.write(chunk())).rejects.toThrow('not writable');
+  });
+
+  it('rejects writes after close has been requested', async () => {
+    const socket = new FakeSocket();
+    const provider = new DeepgramNova3Provider({
+      createSocket: () => socket,
+      audioFormat: format,
+      closeTimeoutMs: 50,
+    });
+
+    const connectionPromise = provider.connect(request, () => undefined);
+    socket.open();
+    const connection = await connectionPromise;
+    const closePromise = connection.close();
+
+    await expect(connection.write(chunk())).rejects.toThrow('not writable');
+    socket.closed({ code: 1000, reason: 'client-close' });
+    await closePromise;
   });
 
   it('waits for the provider close so final results are not cut off', async () => {
