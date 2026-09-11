@@ -5,6 +5,11 @@ import {
   type MicrophoneDiagnosticResult,
   type MicrophoneDiagnosticState,
 } from './microphone-diagnostic.js';
+import {
+  runSystemAudioDiagnostic,
+  type SystemAudioDiagnosticResult,
+  type SystemAudioDiagnosticState,
+} from './system-audio-diagnostic.js';
 
 type CheckState = 'pending' | 'checking' | 'ready' | 'blocked' | 'error';
 
@@ -47,11 +52,26 @@ function microphoneDescription(
   return result?.message ?? 'Your side of the conversation';
 }
 
+function systemAudioDescription(
+  state: SystemAudioDiagnosticState,
+  result: SystemAudioDiagnosticResult | null,
+): string {
+  if (state === 'checking') {
+    return 'Choose a source in the macOS sharing picker so remote audio can be verified…';
+  }
+
+  return result?.message ?? 'The other side of the conversation';
+}
+
 export function App() {
   const [microphoneState, setMicrophoneState] =
     useState<MicrophoneDiagnosticState>('idle');
   const [microphoneResult, setMicrophoneResult] =
     useState<MicrophoneDiagnosticResult | null>(null);
+  const [systemAudioState, setSystemAudioState] =
+    useState<SystemAudioDiagnosticState>('idle');
+  const [systemAudioResult, setSystemAudioResult] =
+    useState<SystemAudioDiagnosticResult | null>(null);
 
   const checks = useMemo<readonly PreflightCheck[]>(
     () => [
@@ -70,8 +90,14 @@ export function App() {
       {
         id: 'system-audio',
         label: 'Remote audio',
-        description: 'The other side of the conversation',
-        state: 'pending',
+        description: systemAudioDescription(systemAudioState, systemAudioResult),
+        state: systemAudioState === 'idle' ? 'pending' : systemAudioState,
+        detail:
+          systemAudioResult?.state === 'blocked' &&
+          systemAudioResult.signalDetected === false
+            ? 'A live signal is required here because macOS can expose an audio track that contains no usable samples.'
+            : undefined,
+        action: systemAudioResult?.action,
       },
       {
         id: 'network',
@@ -86,19 +112,26 @@ export function App() {
         state: 'pending',
       },
     ],
-    [microphoneResult, microphoneState],
+    [microphoneResult, microphoneState, systemAudioResult, systemAudioState],
   );
 
   const allReady = checks.every((check) => check.state === 'ready');
-  const isChecking = microphoneState === 'checking';
+  const isChecking =
+    microphoneState === 'checking' || systemAudioState === 'checking';
 
   async function runDiagnostics(): Promise<void> {
     setMicrophoneState('checking');
+    setSystemAudioState('checking');
     setMicrophoneResult(null);
+    setSystemAudioResult(null);
 
-    const result = await runMicrophoneDiagnostic();
-    setMicrophoneResult(result);
-    setMicrophoneState(result.state);
+    const microphone = await runMicrophoneDiagnostic();
+    setMicrophoneResult(microphone);
+    setMicrophoneState(microphone.state);
+
+    const systemAudio = await runSystemAudioDiagnostic();
+    setSystemAudioResult(systemAudio);
+    setSystemAudioState(systemAudio.state);
   }
 
   return (
@@ -150,12 +183,14 @@ export function App() {
 
       <aside className="privacy-note">
         <strong>Privacy baseline</strong>
-        <span>The microphone sample is processed locally and raw audio is not stored.</span>
+        <span>
+          Diagnostic audio is sampled locally for readiness checks and raw audio is not stored.
+        </span>
       </aside>
 
       <footer className="footer-actions">
         <p>
-          Microphone diagnostics are live. Remote audio, realtime connection and
+          Microphone and remote-audio diagnostics are live. Realtime connection and
           interview context checks remain P0 work, so live start stays locked until
           the complete path is ready.
         </p>
