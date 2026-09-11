@@ -7,12 +7,17 @@ import {
   getMicrophonePermissionStatus,
   requestMicrophonePermission,
 } from './media-permissions.js';
+import {
+  configureSystemAudioCapture,
+  getSystemAudioCapability,
+} from './system-audio.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
 function registerIpcHandlers(): void {
   ipcMain.handle('microphone:get-permission', () => getMicrophonePermissionStatus());
   ipcMain.handle('microphone:request-permission', () => requestMicrophonePermission());
+  ipcMain.handle('system-audio:get-capability', () => getSystemAudioCapability());
 }
 
 function createMainWindow(): BrowserWindow {
@@ -42,6 +47,7 @@ function createMainWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   configureMediaPermissionHandlers(session.defaultSession);
+  configureSystemAudioCapture(session.defaultSession);
   registerIpcHandlers();
   createMainWindow();
 

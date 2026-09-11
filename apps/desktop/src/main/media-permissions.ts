@@ -14,30 +14,57 @@ function isAppOrigin(origin: string | undefined): boolean {
   return origin === APP_ORIGIN || origin?.startsWith('file:///') === true;
 }
 
+function isTrustedRequest(
+  webContents: Electron.WebContents | null,
+  requestingOrigin: string | undefined,
+  securityOrigin?: string | undefined,
+): boolean {
+  const trustedOrigin =
+    isAppOrigin(requestingOrigin) || isAppOrigin(securityOrigin);
+  const trustedContents =
+    webContents === null || isAppOrigin(webContents.getURL());
+
+  return trustedOrigin && trustedContents;
+}
+
 export function configureMediaPermissionHandlers(session: Session): void {
   session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    if (
+      permission === 'display-capture' &&
+      isTrustedRequest(webContents, requestingOrigin, details.securityOrigin)
+    ) {
+      return true;
+    }
+
     if (permission !== 'media') {
       return false;
     }
 
-    const trustedOrigin =
-      isAppOrigin(requestingOrigin) || isAppOrigin(details.securityOrigin);
-    const trustedContents =
-      webContents === null || isAppOrigin(webContents.getURL());
+    const trustedRequest = isTrustedRequest(
+      webContents,
+      requestingOrigin,
+      details.securityOrigin,
+    );
     const audioOnly =
       details.mediaType === undefined ||
       details.mediaType === 'audio' ||
       details.mediaType === 'unknown';
 
-    return trustedOrigin && trustedContents && audioOnly;
+    return trustedRequest && audioOnly;
   });
 
   session.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    if (
-      permission !== 'media' ||
-      !isAppOrigin(webContents.getURL()) ||
-      !('mediaTypes' in details)
-    ) {
+    if (!isAppOrigin(webContents.getURL())) {
+      callback(false);
+      return;
+    }
+
+    if (permission === 'display-capture') {
+      callback(true);
+      return;
+    }
+
+    if (permission !== 'media' || !('mediaTypes' in details)) {
       callback(false);
       return;
     }
