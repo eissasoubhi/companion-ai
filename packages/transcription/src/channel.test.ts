@@ -108,6 +108,9 @@ describe('TranscriptionChannel', () => {
     const pending = channel.writeAudio(audioChunk(0));
     expect(writes).toEqual([0]);
 
+    await expect(channel.writeAudio(audioChunk(1))).rejects.toThrow('backpressure');
+    expect(writes).toEqual([0]);
+
     resolveWrite?.();
     await pending;
 
