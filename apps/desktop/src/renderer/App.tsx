@@ -41,14 +41,8 @@ function microphoneDescription(
   state: MicrophoneDiagnosticState,
   result: MicrophoneDiagnosticResult | null,
 ): string {
-  if (state === 'checking') {
-    return 'Opening the microphone and sampling the input…';
-  }
-
-  if (result?.deviceLabel) {
-    return `${result.deviceLabel} · ${result.message}`;
-  }
-
+  if (state === 'checking') return 'Opening the microphone and sampling the input…';
+  if (result?.deviceLabel) return `${result.deviceLabel} · ${result.message}`;
   return result?.message ?? 'Your side of the conversation';
 }
 
@@ -59,7 +53,6 @@ function systemAudioDescription(
   if (state === 'checking') {
     return 'Choose a source in the macOS sharing picker so remote audio can be verified…';
   }
-
   return result?.message ?? 'The other side of the conversation';
 }
 
@@ -72,6 +65,8 @@ export function App() {
     useState<SystemAudioDiagnosticState>('idle');
   const [systemAudioResult, setSystemAudioResult] =
     useState<SystemAudioDiagnosticResult | null>(null);
+  const [networkState, setNetworkState] = useState<CheckState>('pending');
+  const [networkResult, setNetworkResult] = useState<NetworkDiagnosticResult | null>(null);
 
   const checks = useMemo<readonly PreflightCheck[]>(
     () => [
@@ -81,8 +76,7 @@ export function App() {
         description: microphoneDescription(microphoneState, microphoneResult),
         state: microphoneState === 'idle' ? 'pending' : microphoneState,
         detail:
-          microphoneResult?.state === 'ready' &&
-          microphoneResult.signalDetected === false
+          microphoneResult?.state === 'ready' && microphoneResult.signalDetected === false
             ? 'The device is usable; signal detection is informational and does not block readiness.'
             : undefined,
         action: microphoneResult?.action,
@@ -93,8 +87,7 @@ export function App() {
         description: systemAudioDescription(systemAudioState, systemAudioResult),
         state: systemAudioState === 'idle' ? 'pending' : systemAudioState,
         detail:
-          systemAudioResult?.state === 'blocked' &&
-          systemAudioResult.signalDetected === false
+          systemAudioResult?.state === 'blocked' && systemAudioResult.signalDetected === false
             ? 'A live signal is required here because macOS can expose an audio track that contains no usable samples.'
             : undefined,
         action: systemAudioResult?.action,
@@ -102,8 +95,16 @@ export function App() {
       {
         id: 'network',
         label: 'Realtime connection',
-        description: 'Streaming transcription and suggestions',
-        state: 'pending',
+        description:
+          networkState === 'checking'
+            ? 'Checking the realtime provider path…'
+            : networkResult?.message ?? 'Streaming transcription and suggestions',
+        state: networkState,
+        detail:
+          networkResult?.state === 'ready'
+            ? `${networkResult.host}${networkResult.httpStatus === undefined ? '' : ` · HTTP ${networkResult.httpStatus}`}`
+            : undefined,
+        action: networkResult?.action,
       },
       {
         id: 'context',
@@ -112,19 +113,29 @@ export function App() {
         state: 'pending',
       },
     ],
-    [microphoneResult, microphoneState, systemAudioResult, systemAudioState],
+    [
+      microphoneResult,
+      microphoneState,
+      networkResult,
+      networkState,
+      systemAudioResult,
+      systemAudioState,
+    ],
   );
 
   const allReady = checks.every((check) => check.state === 'ready');
   const isChecking =
-    microphoneState === 'checking' || systemAudioState === 'checking';
+    microphoneState === 'checking' || systemAudioState === 'checking' || networkState === 'checking';
 
   async function runDiagnostics(): Promise<void> {
     setMicrophoneState('checking');
     setSystemAudioState('checking');
+    setNetworkState('checking');
     setMicrophoneResult(null);
     setSystemAudioResult(null);
+    setNetworkResult(null);
 
+    const networkPromise = window.companion.network.runDiagnostic();
     const microphone = await runMicrophoneDiagnostic();
     setMicrophoneResult(microphone);
     setMicrophoneState(microphone.state);
@@ -132,6 +143,10 @@ export function App() {
     const systemAudio = await runSystemAudioDiagnostic();
     setSystemAudioResult(systemAudio);
     setSystemAudioState(systemAudio.state);
+
+    const network = await networkPromise;
+    setNetworkResult(network);
+    setNetworkState(network.state);
   }
 
   return (
@@ -190,9 +205,8 @@ export function App() {
 
       <footer className="footer-actions">
         <p>
-          Microphone and remote-audio diagnostics are live. Realtime connection and
-          interview context checks remain P0 work, so live start stays locked until
-          the complete path is ready.
+          Microphone, remote audio and realtime connectivity diagnostics are live.
+          Interview context remains the final preflight placeholder, so live start stays locked.
         </p>
         <button className="primary-button" type="button" disabled={!allReady}>
           Start live session
