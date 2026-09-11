@@ -1,3 +1,5 @@
+import { detectAudioSignal } from './audio-signal.js';
+
 export type MicrophoneDiagnosticState =
   | 'idle'
   | 'checking'
@@ -75,38 +77,6 @@ export function describeMicrophoneError(error: unknown): MicrophoneDiagnosticRes
   };
 }
 
-async function detectSignal(
-  stream: MediaStream,
-  createAudioContext: () => AudioContext,
-): Promise<boolean> {
-  const context = createAudioContext();
-  const analyser = context.createAnalyser();
-  analyser.fftSize = 512;
-
-  const source = context.createMediaStreamSource(stream);
-  source.connect(analyser);
-
-  const samples = new Uint8Array(analyser.fftSize);
-  const deadline = performance.now() + 700;
-  let signalDetected = false;
-
-  try {
-    while (performance.now() < deadline && !signalDetected) {
-      analyser.getByteTimeDomainData(samples);
-      signalDetected = samples.some((sample) => Math.abs(sample - 128) > 2);
-
-      if (!signalDetected) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 50));
-      }
-    }
-  } finally {
-    source.disconnect();
-    await context.close();
-  }
-
-  return signalDetected;
-}
-
 function defaultDependencies(): MicrophoneDependencies {
   return {
     getPermissionStatus: () => window.companion.microphone.getPermissionStatus(),
@@ -148,7 +118,10 @@ export async function runMicrophoneDiagnostic(
       const device = devices.find(
         (candidate) => candidate.kind === 'audioinput' && candidate.deviceId === settings.deviceId,
       );
-      const signalDetected = await detectSignal(stream, dependencies.createAudioContext);
+      const signalDetected = await detectAudioSignal(
+        stream,
+        dependencies.createAudioContext,
+      );
       const deviceLabel = device?.label || track.label || 'Default microphone';
 
       return {
