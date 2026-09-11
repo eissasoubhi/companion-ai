@@ -44,6 +44,7 @@ export class TranscriptionChannel {
   #clock: TranscriptionClock;
   #lastSequence = -1;
   #closed = false;
+  #writeInFlight = false;
 
   private constructor(
     provider: TranscriptionProvider,
@@ -91,6 +92,12 @@ export class TranscriptionChannel {
       throw new Error('Cannot write audio to a closed transcription channel.');
     }
 
+    if (this.#writeInFlight) {
+      throw new Error(
+        'A transcription write is already in flight. Await writeAudio() to apply backpressure.',
+      );
+    }
+
     if (chunk.sessionId !== this.sessionId || chunk.source !== this.source) {
       throw new Error('Audio chunk does not belong to this transcription channel.');
     }
@@ -109,8 +116,13 @@ export class TranscriptionChannel {
       throw new RangeError('Audio chunk format is invalid.');
     }
 
-    await this.#connection.write(chunk);
-    this.#lastSequence = chunk.sequence;
+    this.#writeInFlight = true;
+    try {
+      await this.#connection.write(chunk);
+      this.#lastSequence = chunk.sequence;
+    } finally {
+      this.#writeInFlight = false;
+    }
   }
 
   async close(): Promise<void> {
