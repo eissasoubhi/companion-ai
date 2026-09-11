@@ -7,6 +7,7 @@ import {
   getMicrophonePermissionStatus,
   requestMicrophonePermission,
 } from './media-permissions.js';
+import { runNetworkDiagnostic } from './network-diagnostic.js';
 import {
   configureSystemAudioCapture,
   getSystemAudioCapability,
@@ -18,6 +19,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('microphone:get-permission', () => getMicrophonePermissionStatus());
   ipcMain.handle('microphone:request-permission', () => requestMicrophonePermission());
   ipcMain.handle('system-audio:get-capability', () => getSystemAudioCapability());
+  ipcMain.handle('network:run-diagnostic', () => runNetworkDiagnostic());
 }
 
 function createMainWindow(): BrowserWindow {
