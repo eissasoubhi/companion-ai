@@ -35,7 +35,7 @@ class FakeProvider implements TranscriptionProvider {
   }
 }
 
-function createHarness(options: { readonly apiKey?: string } = { apiKey: 'main-process-secret' }) {
+function createHarness(options: { readonly apiKey?: string | undefined } = { apiKey: 'main-process-secret' }) {
   let sink: AudioIpcSink | undefined;
   const controller: AudioIpcController = {
     setSink: (next) => {
