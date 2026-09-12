@@ -66,11 +66,6 @@ function resampleMono(
   return output;
 }
 
-/**
- * Converts one renderer-owned MediaStream into bounded PCM16 IPC writes.
- * Each invocation owns its own encoder/queue so local and remote sequencing
- * cannot bleed into one another.
- */
 export async function startLiveAudioStream(
   options: LiveAudioStreamOptions,
   dependencies: LiveAudioDependencies = defaultDependencies(),
@@ -78,6 +73,7 @@ export async function startLiveAudioStream(
   const track = options.stream.getAudioTracks().find((candidate) => candidate.readyState === 'live');
   if (!track) throw new Error(`No live ${options.source} audio track is available.`);
   if (!options.sessionId.trim()) throw new Error('sessionId is required.');
+  const liveTrack = track;
 
   const targetSampleRateHz = options.targetSampleRateHz ?? DEFAULT_TARGET_SAMPLE_RATE_HZ;
   const frameDurationMs = options.frameDurationMs ?? DEFAULT_FRAME_DURATION_MS;
@@ -102,7 +98,7 @@ export async function startLiveAudioStream(
   async function stop(): Promise<void> {
     if (stopped) return;
     stopped = true;
-    track.removeEventListener('ended', onTrackEnded);
+    liveTrack.removeEventListener('ended', onTrackEnded);
     processor.onaudioprocess = null;
     queue.clear();
     encoder.reset();
@@ -138,7 +134,7 @@ export async function startLiveAudioStream(
     void stop();
   }
 
-  track.addEventListener('ended', onTrackEnded, { once: true });
+  liveTrack.addEventListener('ended', onTrackEnded, { once: true });
 
   processor.onaudioprocess = (event) => {
     if (stopped) return;
