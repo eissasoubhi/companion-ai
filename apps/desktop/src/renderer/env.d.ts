@@ -67,6 +67,23 @@ declare global {
         readonly retryable: boolean;
       };
 
+  interface RendererDetectedQuestion {
+    readonly id: string;
+    readonly sessionId: string;
+    readonly transcriptSegmentIds: readonly string[];
+    readonly text: string;
+    readonly kind:
+      | 'general'
+      | 'behavioral'
+      | 'technical'
+      | 'coding'
+      | 'system-design'
+      | 'recruiter'
+      | 'negotiation';
+    readonly confidence: number;
+    readonly detectedAtMs: number;
+  }
+
   interface Window {
     companion: {
       readonly platform: string;
@@ -87,6 +104,9 @@ declare global {
         start(options?: { readonly language?: string | undefined }): Promise<{ sessionId: string }>;
         stop(): Promise<void>;
         onEvent(listener: (event: RendererTranscriptionEvent) => void): () => void;
+      };
+      readonly questions: {
+        onDetected(listener: (question: RendererDetectedQuestion) => void): () => void;
       };
     };
   }
