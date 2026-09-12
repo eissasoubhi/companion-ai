@@ -24,7 +24,8 @@ function createNativeDeepgramSocket(url: string, apiKey: string): DeepgramSocket
   const socket = new WebSocket(url, ['token', apiKey]);
 
   return {
-    send: (data) => socket.send(data),
+    send: (data) =>
+      socket.send(typeof data === 'string' ? data : Uint8Array.from(data).buffer),
     close: (code, reason) => socket.close(code, reason),
     onOpen: (handler) => socket.addEventListener('open', handler),
     onMessage: (handler) =>
