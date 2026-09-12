@@ -19,8 +19,10 @@ export function reduceLiveAnswerEvent(
   event: RendererAnswerEvent,
   activeSessionId: string | null,
 ): LiveAnswerState {
+  if (activeSessionId === null) return state;
+
   if (event.type === 'suggestion') {
-    if (activeSessionId !== null && event.suggestion.sessionId !== activeSessionId) return state;
+    if (event.suggestion.sessionId !== activeSessionId) return state;
 
     return {
       sessionId: event.suggestion.sessionId,
@@ -32,7 +34,7 @@ export function reduceLiveAnswerEvent(
   }
 
   if (event.type === 'runtime-error') {
-    if (activeSessionId !== null && event.sessionId !== activeSessionId) return state;
+    if (event.sessionId !== activeSessionId) return state;
 
     return {
       ...state,
