@@ -5,7 +5,7 @@ import type {
 } from '@companion-ai/ai';
 
 const DEFAULT_ENDPOINT = 'https://api.openai.com/v1/responses';
-const DEFAULT_MODEL = 'gpt-5.2-mini';
+const DEFAULT_MODEL = 'gpt-5.6-terra';
 
 export interface OpenAIProviderOptions {
   readonly apiKey: string;
