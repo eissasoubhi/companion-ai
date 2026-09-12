@@ -148,6 +148,7 @@ declare global {
         onDetected(listener: (question: RendererDetectedQuestion) => void): () => void;
       };
       readonly answers: {
+        ask(request: { readonly sessionId: string; readonly text: string }): Promise<void>;
         onEvent(listener: (event: RendererAnswerEvent) => void): () => void;
       };
     };
