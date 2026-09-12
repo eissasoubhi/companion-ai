@@ -93,13 +93,13 @@ export async function startLiveAudioStream(
     sampleRate: targetSampleRateHz,
   });
   const sourceNode = context.createMediaStreamSource(options.stream);
-  const processor = context.createScriptProcessor(2048, 2, 1);
+  const processor = context.createScriptProcessor(512, 2, 1);
 
   let stopped = false;
   let draining = false;
   let droppedFrames = 0;
 
-  const stop = async (): Promise<void> => {
+  async function stop(): Promise<void> {
     if (stopped) return;
     stopped = true;
     track.removeEventListener('ended', onTrackEnded);
@@ -110,9 +110,9 @@ export async function startLiveAudioStream(
     processor.disconnect();
     for (const streamTrack of options.stream.getTracks()) streamTrack.stop();
     if (context.state !== 'closed') await context.close();
-  };
+  }
 
-  const drain = async (): Promise<void> => {
+  async function drain(): Promise<void> {
     if (draining || stopped) return;
     draining = true;
     try {
@@ -130,13 +130,13 @@ export async function startLiveAudioStream(
     } finally {
       draining = false;
     }
-  };
+  }
 
-  const onTrackEnded = (): void => {
+  function onTrackEnded(): void {
     if (stopped) return;
     options.onDegraded?.('track-ended');
     void stop();
-  };
+  }
 
   track.addEventListener('ended', onTrackEnded, { once: true });
 
@@ -170,9 +170,14 @@ export async function startLiveAudioStream(
     void drain();
   };
 
-  sourceNode.connect(processor);
-  processor.connect(context.destination);
-  if (context.state === 'suspended') await context.resume();
+  try {
+    sourceNode.connect(processor);
+    processor.connect(context.destination);
+    if (context.state === 'suspended') await context.resume();
+  } catch (error) {
+    await stop();
+    throw error;
+  }
 
   return {
     source: options.source,
