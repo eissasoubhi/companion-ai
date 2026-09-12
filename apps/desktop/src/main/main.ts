@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { registerAudioIpcHandlers } from './audio-ipc.js';
 import {
   configureMediaPermissionHandlers,
   getMicrophonePermissionStatus,
@@ -20,6 +21,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('microphone:request-permission', () => requestMicrophonePermission());
   ipcMain.handle('system-audio:get-capability', () => getSystemAudioCapability());
   ipcMain.handle('network:run-diagnostic', () => runNetworkDiagnostic());
+  registerAudioIpcHandlers();
 }
 
 function createMainWindow(): BrowserWindow {
