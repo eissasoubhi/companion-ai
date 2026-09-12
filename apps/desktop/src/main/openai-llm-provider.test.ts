@@ -82,7 +82,7 @@ describe('OpenAILLMProvider', () => {
         {
           source: {
             id: 'source-1',
-            kind: 'profile',
+            kind: 'profile-fact',
             label: 'Verified profile',
           },
           text: 'The candidate has production Symfony experience.',
