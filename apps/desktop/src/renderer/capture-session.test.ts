@@ -45,6 +45,7 @@ function createDependencies() {
       startTranscription: vi.fn(async () => ({ sessionId: 'session-1' })),
       stopTranscription: vi.fn(async () => undefined),
       startLiveAudioStream,
+      now: vi.fn(() => 0),
     },
   };
 }
@@ -69,6 +70,68 @@ describe('startCaptureSession', () => {
     });
     expect(session.sessionId).toBe('session-1');
 
+    await session.stop();
+  });
+
+  it('emits bounded startup timing for every successful stage', async () => {
+    const harness = createDependencies();
+    const onStartupMetric = vi.fn();
+    const times = [10, 15, 20, 28, 30, 33, 40, 47, 50, 61];
+    harness.dependencies.now.mockImplementation(() => times.shift() ?? 61);
+
+    const session = await startCaptureSession({ onStartupMetric }, harness.dependencies);
+
+    expect(onStartupMetric.mock.calls.map(([metric]) => metric)).toEqual([
+      { stage: 'microphone-capture', durationMs: 5, outcome: 'success' },
+      { stage: 'remote-capture', durationMs: 8, outcome: 'success' },
+      { stage: 'transcription', durationMs: 3, outcome: 'success' },
+      { stage: 'local-stream', durationMs: 7, outcome: 'success' },
+      { stage: 'remote-stream', durationMs: 11, outcome: 'success' },
+    ]);
+
+    await session.stop();
+  });
+
+  it('records a failed startup stage and still cleans up acquired capture', async () => {
+    const harness = createDependencies();
+    const onStartupMetric = vi.fn();
+    const times = [100, 104, 110, 119];
+    harness.dependencies.now.mockImplementation(() => times.shift() ?? 119);
+    harness.dependencies.getDisplayMedia.mockRejectedValueOnce(new Error('picker cancelled'));
+
+    await expect(
+      startCaptureSession({ onStartupMetric }, harness.dependencies),
+    ).rejects.toThrow('picker cancelled');
+
+    expect(onStartupMetric.mock.calls.map(([metric]) => metric)).toEqual([
+      { stage: 'microphone-capture', durationMs: 4, outcome: 'success' },
+      { stage: 'remote-capture', durationMs: 9, outcome: 'failure' },
+    ]);
+    expect(harness.local.stop).toHaveBeenCalledOnce();
+  });
+
+  it('does not let a diagnostics callback failure break capture startup', async () => {
+    const harness = createDependencies();
+    const onStartupMetric = vi.fn(() => {
+      throw new Error('telemetry unavailable');
+    });
+
+    const session = await startCaptureSession({ onStartupMetric }, harness.dependencies);
+
+    expect(onStartupMetric).toHaveBeenCalledTimes(5);
+    expect(session.sessionId).toBe('session-1');
+    await session.stop();
+  });
+
+  it('clamps invalid or negative timing values instead of exposing unsafe metrics', async () => {
+    const harness = createDependencies();
+    const onStartupMetric = vi.fn();
+    const times = [10, 5, Number.NaN, 20, 30, 30, 40, 40, 50, 50];
+    harness.dependencies.now.mockImplementation(() => times.shift() ?? 50);
+
+    const session = await startCaptureSession({ onStartupMetric }, harness.dependencies);
+
+    expect(onStartupMetric.mock.calls.map(([metric]) => metric.durationMs)).toEqual([0, 0, 0, 0, 0]);
     await session.stop();
   });
 
