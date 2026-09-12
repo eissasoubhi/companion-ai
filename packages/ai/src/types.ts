@@ -4,6 +4,11 @@ import type {
   SuggestionLength,
 } from '@companion-ai/contracts';
 
+export interface GroundingContextSnippet {
+  readonly source: GroundingSource;
+  readonly text: string;
+}
+
 export interface AnswerGenerationRequest {
   readonly requestId: string;
   readonly sessionId: string;
@@ -11,6 +16,7 @@ export interface AnswerGenerationRequest {
   readonly question: string;
   readonly length: SuggestionLength;
   readonly grounding?: readonly GroundingSource[] | undefined;
+  readonly groundingContext?: readonly GroundingContextSnippet[] | undefined;
   readonly instructions?: string | undefined;
 }
 
