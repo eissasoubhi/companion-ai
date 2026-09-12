@@ -7,7 +7,7 @@ import {
   type OpenAIRealtimeSocketCloseEvent,
   type OpenAIRealtimeSocketMessage,
 } from './openai.js';
-import type { TranscriptionProviderEvent } from '../types.js';
+import type { AudioChunk, TranscriptionProviderEvent } from '../types.js';
 
 class FakeSocket implements OpenAIRealtimeSocket {
   readonly sent: string[] = [];
@@ -65,11 +65,7 @@ const request = {
   partialResults: true,
 } as const;
 
-function audio(overrides: Partial<ReturnType<typeof baseAudio>> = {}) {
-  return { ...baseAudio(), ...overrides };
-}
-
-function baseAudio() {
+function audio(overrides: Partial<AudioChunk> = {}): AudioChunk {
   return {
     sessionId: 'session-1',
     source: 'remote',
@@ -79,7 +75,8 @@ function baseAudio() {
     channels: 1,
     encoding: 'pcm-s16le',
     data: new Uint8Array([1, 2, 3]),
-  } as const;
+    ...overrides,
+  };
 }
 
 async function connectReady(
