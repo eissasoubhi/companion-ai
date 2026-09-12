@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('companion', {
     },
   },
   answers: {
+    ask: (request: unknown) => ipcRenderer.invoke('answer:ask', request),
     onEvent: (listener: (event: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => listener(payload);
       ipcRenderer.on('answer:event', handler);
