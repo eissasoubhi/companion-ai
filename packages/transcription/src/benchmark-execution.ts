@@ -1,4 +1,9 @@
-import type { AudioChunk, TranscriptionPipelineEvent, TranscriptionProvider } from './types.js';
+import type {
+  AudioChunk,
+  TranscriptLatencySample,
+  TranscriptionPipelineEvent,
+  TranscriptionProvider,
+} from './types.js';
 import type { TranscriptBenchmarkCorpusCase } from './benchmark-corpus.js';
 import {
   summarizeTranscriptBenchmarkRun,
@@ -83,9 +88,7 @@ async function executeFixture(
   clock: TranscriptionClock,
 ): Promise<TranscriptBenchmarkObservation> {
   const finalTexts: string[] = [];
-  const latencySamples: TranscriptBenchmarkObservation['latencySamples'] extends readonly (infer T)[]
-    ? T[]
-    : never = [];
+  const latencySamples: TranscriptLatencySample[] = [];
   let resolveFinal: (() => void) | undefined;
   let rejectFinal: ((error: Error) => void) | undefined;
   let finalSettled = false;
