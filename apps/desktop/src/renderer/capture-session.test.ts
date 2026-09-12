@@ -72,7 +72,7 @@ describe('startCaptureSession', () => {
     await session.stop();
   });
 
-  it('propagates degraded state with the source that failed', async () => {
+  it('fails closed exactly once when either live channel degrades', async () => {
     const harness = createDependencies();
     const onDegraded = vi.fn();
 
@@ -83,13 +83,32 @@ describe('startCaptureSession', () => {
     localOptions?.onDegraded?.('track-ended');
     remoteOptions?.onDegraded?.('write-failed', new Error('saturated'));
 
-    expect(onDegraded).toHaveBeenNthCalledWith(1, 'local', 'track-ended', undefined);
-    expect(onDegraded).toHaveBeenNthCalledWith(
-      2,
-      'remote',
-      'write-failed',
-      expect.any(Error),
-    );
+    await vi.waitFor(() => {
+      expect(harness.localHandle.stop).toHaveBeenCalledOnce();
+      expect(harness.remoteHandle.stop).toHaveBeenCalledOnce();
+      expect(harness.dependencies.stopTranscription).toHaveBeenCalledOnce();
+    });
+    expect(onDegraded).toHaveBeenCalledOnce();
+    expect(onDegraded).toHaveBeenCalledWith('local', 'track-ended', undefined);
+  });
+
+  it('rejects startup and cleans up if a channel degrades before both channels are ready', async () => {
+    const harness = createDependencies();
+    const onDegraded = vi.fn();
+    harness.dependencies.startLiveAudioStream.mockImplementationOnce(async (options) => {
+      options.onDegraded?.('track-ended');
+      return harness.localHandle;
+    });
+    harness.dependencies.startLiveAudioStream.mockImplementationOnce(async () => harness.remoteHandle);
+
+    await expect(
+      startCaptureSession({ onDegraded }, harness.dependencies),
+    ).rejects.toThrow('Capture degraded during startup (local: track-ended)');
+
+    expect(onDegraded).toHaveBeenCalledOnce();
+    expect(harness.localHandle.stop).toHaveBeenCalledOnce();
+    expect(harness.remoteHandle.stop).toHaveBeenCalledOnce();
+    expect(harness.dependencies.stopTranscription).toHaveBeenCalledOnce();
   });
 
   it('cleans up an already-started local channel when remote setup fails', async () => {
