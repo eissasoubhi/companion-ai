@@ -82,6 +82,7 @@ export class QuestionStream {
   readonly #config: QuestionStreamConfig;
   readonly #dependencies: QuestionStreamDependencies;
   #seen: SeenQuestion[] = [];
+  #sessionId: string | undefined;
 
   constructor(
     config: Partial<QuestionStreamConfig> = {},
@@ -108,6 +109,11 @@ export class QuestionStream {
 
     const { segment } = event;
     if (segment.source !== 'remote' || !segment.isFinal) return undefined;
+
+    if (this.#sessionId !== segment.sessionId) {
+      this.#seen = [];
+      this.#sessionId = segment.sessionId;
+    }
 
     const text = segment.text.trim();
     if (!text) return undefined;
@@ -143,5 +149,6 @@ export class QuestionStream {
 
   reset(): void {
     this.#seen = [];
+    this.#sessionId = undefined;
   }
 }
