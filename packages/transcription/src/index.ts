@@ -1,3 +1,4 @@
+export * from './benchmark-metrics.js';
 export * from './channel.js';
 export * from './latency-metrics.js';
 export * from './latency-window.js';
