@@ -195,7 +195,13 @@ export function App() {
     try {
       const session = await startCaptureSession({
         onDegraded: (source, reason) => {
-          setLiveError(`${source === 'local' ? 'Microphone' : 'Remote audio'} degraded: ${reason}.`);
+          captureSessionRef.current = null;
+          setActiveSessionId(null);
+          setAnswerState(initialLiveAnswerState);
+          setManualQuestion('');
+          setManualAskBusy(false);
+          setLiveError(`${source === 'local' ? 'Microphone' : 'Remote audio'} degraded: ${reason}. Run diagnostics before restarting.`);
+          setLiveState('error');
         },
       });
       captureSessionRef.current = session;
