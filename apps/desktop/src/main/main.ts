@@ -14,16 +14,34 @@ import {
   getSystemAudioCapability,
 } from './system-audio.js';
 import { TranscriptionIngress } from './transcription-ingress.js';
+import { TranscriptionRuntime } from './transcription-runtime.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
-function registerIpcHandlers(): TranscriptionIngress {
+function registerIpcHandlers(): TranscriptionRuntime {
   ipcMain.handle('microphone:get-permission', () => getMicrophonePermissionStatus());
   ipcMain.handle('microphone:request-permission', () => requestMicrophonePermission());
   ipcMain.handle('system-audio:get-capability', () => getSystemAudioCapability());
   ipcMain.handle('network:run-diagnostic', () => runNetworkDiagnostic());
 
-  return new TranscriptionIngress(registerAudioIpcHandlers());
+  const ingress = new TranscriptionIngress(registerAudioIpcHandlers());
+  const runtime = new TranscriptionRuntime(ingress, (event) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send('transcription:event', event);
+    }
+  });
+
+  ipcMain.handle('transcription:start', (_event, options: unknown) => {
+    const language =
+      typeof options === 'object' && options !== null &&
+      'language' in options && typeof options.language === 'string'
+        ? options.language.trim() || undefined
+        : undefined;
+    return runtime.start(language === undefined ? {} : { language });
+  });
+  ipcMain.handle('transcription:stop', () => runtime.stop());
+
+  return runtime;
 }
 
 function createMainWindow(): BrowserWindow {
@@ -54,11 +72,11 @@ function createMainWindow(): BrowserWindow {
 app.whenReady().then(() => {
   configureMediaPermissionHandlers(session.defaultSession);
   configureSystemAudioCapture(session.defaultSession);
-  const transcriptionIngress = registerIpcHandlers();
+  const transcriptionRuntime = registerIpcHandlers();
   createMainWindow();
 
   app.once('before-quit', () => {
-    void transcriptionIngress.deactivate();
+    void transcriptionRuntime.stop();
   });
 
   app.on('activate', () => {
