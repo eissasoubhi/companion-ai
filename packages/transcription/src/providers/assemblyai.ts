@@ -120,8 +120,12 @@ export class AssemblyAIUniversal35Provider implements TranscriptionProvider {
     const closeTimeoutMs = this.#config.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
     let closed = false;
     let closeRequested = false;
+    let openedSuccessfully = false;
+    let openingSettled = false;
     let turnSequence = 0;
+    let rejectOpening: ((error: Error) => void) | undefined;
     let resolveClosed: (() => void) | undefined;
+    let openTimer: ReturnType<typeof setTimeout> | undefined;
 
     const closedPromise = new Promise<void>((resolve) => {
       resolveClosed = resolve;
@@ -135,21 +139,29 @@ export class AssemblyAIUniversal35Provider implements TranscriptionProvider {
     };
 
     const opened = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      rejectOpening = reject;
+      openTimer = setTimeout(() => {
+        if (openingSettled) return;
+        openingSettled = true;
         reject(new Error(`AssemblyAI WebSocket did not open within ${openTimeoutMs}ms.`));
         socket.close(1000, 'open-timeout');
       }, openTimeoutMs);
 
       socket.onOpen(() => {
-        clearTimeout(timeout);
+        if (openingSettled) return;
+        openingSettled = true;
+        openedSuccessfully = true;
+        if (openTimer) clearTimeout(openTimer);
         onEvent({ type: 'ready' });
         resolve();
       });
 
       socket.onError((error) => {
-        clearTimeout(timeout);
         const message = errorMessage(error);
         onEvent({ type: 'error', code: 'socket_error', message, retryable: true });
+        if (openingSettled) return;
+        openingSettled = true;
+        if (openTimer) clearTimeout(openTimer);
         reject(new Error(`AssemblyAI WebSocket failed to open: ${message}`));
       });
     });
@@ -188,6 +200,15 @@ export class AssemblyAIUniversal35Provider implements TranscriptionProvider {
     });
 
     socket.onClose((event) => {
+      if (!openingSettled) {
+        openingSettled = true;
+        if (openTimer) clearTimeout(openTimer);
+        rejectOpening?.(
+          new Error(
+            `AssemblyAI WebSocket closed before opening${event.reason ? `: ${event.reason}` : '.'}`,
+          ),
+        );
+      }
       if (!closeRequested && retryableClose(event.code)) {
         onEvent({
           type: 'error',
@@ -200,6 +221,9 @@ export class AssemblyAIUniversal35Provider implements TranscriptionProvider {
     });
 
     await opened;
+    if (!openedSuccessfully || closed) {
+      throw new Error('AssemblyAI WebSocket is not available after opening.');
+    }
 
     return {
       write: async (chunk: AudioChunk): Promise<void> => {
