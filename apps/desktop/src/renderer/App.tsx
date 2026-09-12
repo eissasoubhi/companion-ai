@@ -80,6 +80,8 @@ export function App() {
   const [liveError, setLiveError] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [answerState, setAnswerState] = useState(initialLiveAnswerState);
+  const [manualQuestion, setManualQuestion] = useState('');
+  const [manualAskBusy, setManualAskBusy] = useState(false);
   const captureSessionRef = useRef<CaptureSessionHandle | null>(null);
 
   useEffect(() => {
@@ -220,6 +222,25 @@ export function App() {
     } finally {
       setActiveSessionId(null);
       setAnswerState(initialLiveAnswerState);
+      setManualQuestion('');
+      setManualAskBusy(false);
+    }
+  }
+
+  async function askManually(): Promise<void> {
+    const sessionId = activeSessionId;
+    const text = manualQuestion.trim();
+    if (!sessionId || !text || manualAskBusy) return;
+
+    setManualAskBusy(true);
+    setLiveError(null);
+    try {
+      await window.companion.answers.ask({ sessionId, text });
+      setManualQuestion('');
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : 'Unable to submit the manual question.');
+    } finally {
+      setManualAskBusy(false);
     }
   }
 
@@ -274,6 +295,32 @@ export function App() {
               </div>
             </article>
           </section>
+
+          <form
+            className="footer-actions"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void askManually();
+            }}
+          >
+            <label htmlFor="manual-question">Detector missed it? Ask manually.</label>
+            <input
+              id="manual-question"
+              type="text"
+              maxLength={2_000}
+              value={manualQuestion}
+              disabled={manualAskBusy}
+              onChange={(event) => setManualQuestion(event.target.value)}
+              placeholder="Type the question you want answered"
+            />
+            <button
+              className="secondary-button"
+              type="submit"
+              disabled={manualAskBusy || manualQuestion.trim().length === 0}
+            >
+              {manualAskBusy ? 'Asking…' : 'Ask'}
+            </button>
+          </form>
 
           {liveError ? <p className="check-action">{liveError}</p> : null}
         </>
