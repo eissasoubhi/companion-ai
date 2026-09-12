@@ -9,6 +9,8 @@ export interface TranscriptBenchmarkSampleResult {
   readonly id: string;
   readonly wordErrorRate: number;
   readonly keyTermAccuracy: number | null;
+  readonly keyTermCount: number;
+  readonly keyTermMatches: number;
   readonly referenceWordCount: number;
 }
 
@@ -17,6 +19,8 @@ export interface TranscriptBenchmarkSummary {
   readonly referenceWordCount: number;
   readonly wordErrorRate: number;
   readonly keyTermAccuracy: number | null;
+  readonly keyTermCount: number;
+  readonly keyTermMatches: number;
   readonly samples: readonly TranscriptBenchmarkSampleResult[];
 }
 
@@ -75,25 +79,35 @@ export function calculateWordErrorRate(reference: string, hypothesis: string): n
   return levenshteinDistance(referenceTokens, hypothesisTokens) / referenceTokens.length;
 }
 
-export function calculateKeyTermAccuracy(
+function countKeyTermMatches(
   hypothesis: string,
   keyTerms: readonly string[],
-): number | null {
-  if (keyTerms.length === 0) {
-    return null;
-  }
-
+): { readonly matches: number; readonly count: number } {
   const normalizedHypothesis = ` ${normalizeTranscriptText(hypothesis)} `;
   let matches = 0;
+  let count = 0;
 
   for (const term of keyTerms) {
     const normalizedTerm = normalizeTranscriptText(term);
-    if (normalizedTerm.length > 0 && normalizedHypothesis.includes(` ${normalizedTerm} `)) {
+    if (normalizedTerm.length === 0) {
+      continue;
+    }
+
+    count += 1;
+    if (normalizedHypothesis.includes(` ${normalizedTerm} `)) {
       matches += 1;
     }
   }
 
-  return matches / keyTerms.length;
+  return { matches, count };
+}
+
+export function calculateKeyTermAccuracy(
+  hypothesis: string,
+  keyTerms: readonly string[],
+): number | null {
+  const { matches, count } = countKeyTermMatches(hypothesis, keyTerms);
+  return count === 0 ? null : matches / count;
 }
 
 export function summarizeTranscriptBenchmark(
@@ -101,10 +115,14 @@ export function summarizeTranscriptBenchmark(
 ): TranscriptBenchmarkSummary {
   const results = samples.map((sample) => {
     const referenceWordCount = tokenize(sample.reference).length;
+    const keyTermStats = countKeyTermMatches(sample.hypothesis, sample.keyTerms ?? []);
     return {
       id: sample.id,
       wordErrorRate: calculateWordErrorRate(sample.reference, sample.hypothesis),
-      keyTermAccuracy: calculateKeyTermAccuracy(sample.hypothesis, sample.keyTerms ?? []),
+      keyTermAccuracy:
+        keyTermStats.count === 0 ? null : keyTermStats.matches / keyTermStats.count,
+      keyTermCount: keyTermStats.count,
+      keyTermMatches: keyTermStats.matches,
       referenceWordCount,
     } satisfies TranscriptBenchmarkSampleResult;
   });
@@ -114,20 +132,16 @@ export function summarizeTranscriptBenchmark(
     (sum, sample) => sum + sample.wordErrorRate * sample.referenceWordCount,
     0,
   );
-  const keyTermResults = results.filter(
-    (sample): sample is TranscriptBenchmarkSampleResult & { readonly keyTermAccuracy: number } =>
-      sample.keyTermAccuracy !== null,
-  );
+  const keyTermCount = results.reduce((sum, sample) => sum + sample.keyTermCount, 0);
+  const keyTermMatches = results.reduce((sum, sample) => sum + sample.keyTermMatches, 0);
 
   return {
     sampleCount: results.length,
     referenceWordCount,
     wordErrorRate: referenceWordCount === 0 ? 0 : weightedErrors / referenceWordCount,
-    keyTermAccuracy:
-      keyTermResults.length === 0
-        ? null
-        : keyTermResults.reduce((sum, sample) => sum + sample.keyTermAccuracy, 0) /
-          keyTermResults.length,
+    keyTermAccuracy: keyTermCount === 0 ? null : keyTermMatches / keyTermCount,
+    keyTermCount,
+    keyTermMatches,
     samples: results,
   };
 }
