@@ -154,7 +154,7 @@ export async function startLiveAudioStream(
         sessionId: options.sessionId,
         source: options.source,
         sequence: frame.sequence,
-        startedAtMs: frame.startedAtMs,
+        capturedAtMs: frame.startedAtMs,
         sampleRateHz: frame.sampleRateHz,
         channels: frame.channels,
         encoding: 'pcm-s16le',
