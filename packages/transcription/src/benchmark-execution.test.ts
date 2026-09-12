@@ -148,6 +148,41 @@ describe('executeTranscriptBenchmarkRun', () => {
     ).rejects.toThrow('upstream-unavailable: temporary outage');
   });
 
+  it('fails closed when a provider errors after emitting a final transcript', async () => {
+    const provider: TranscriptionProvider = {
+      id: 'fake:late-error',
+      connect: async (_request, onEvent) => {
+        onEvent({ type: 'ready' });
+        return {
+          write: async () => undefined,
+          close: async () => {
+            onEvent({
+              type: 'transcript',
+              segmentId: 'segment-final',
+              text: 'Explain Symfony',
+              isFinal: true,
+              startedAtMs: 100,
+              endedAtMs: 120,
+            });
+            onEvent({
+              type: 'error',
+              code: 'close-failure',
+              message: 'provider close failed',
+              retryable: false,
+            });
+            onEvent({ type: 'closed' });
+          },
+        };
+      },
+    };
+
+    await expect(
+      executeTranscriptBenchmarkRun(provider, [corpus[0]], [fixtures[0]], {
+        clock: () => 150,
+      }),
+    ).rejects.toThrow('close-failure: provider close failed');
+  });
+
   it('validates the complete fixture set before opening a provider connection', async () => {
     let connects = 0;
     const provider: TranscriptionProvider = {
@@ -171,6 +206,26 @@ describe('executeTranscriptBenchmarkRun', () => {
         },
       ]),
     ).rejects.toThrow('chunk sequence must increase monotonically');
+    expect(connects).toBe(0);
+
+    await expect(
+      executeTranscriptBenchmarkRun(provider, [corpus[0]], [
+        {
+          ...fixtures[0],
+          source: 'unknown',
+        },
+      ]),
+    ).rejects.toThrow('fixture source must be local or remote');
+    expect(connects).toBe(0);
+
+    await expect(
+      executeTranscriptBenchmarkRun(provider, [corpus[0]], [
+        {
+          ...fixtures[0],
+          chunks: [chunk(0, 'first'), { ...chunk(1, 'second'), sampleRateHz: 48_000 }],
+        },
+      ]),
+    ).rejects.toThrow('audio format changes mid-stream');
     expect(connects).toBe(0);
   });
 
