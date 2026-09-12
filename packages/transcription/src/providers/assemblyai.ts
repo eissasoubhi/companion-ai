@@ -209,12 +209,12 @@ export class AssemblyAIUniversal35Provider implements TranscriptionProvider {
           ),
         );
       }
-      if (!closeRequested && retryableClose(event.code)) {
+      if (!closeRequested) {
         onEvent({
           type: 'error',
           code: `socket_closed_${event.code ?? 'unknown'}`,
           message: event.reason || 'AssemblyAI WebSocket closed unexpectedly.',
-          retryable: true,
+          retryable: retryableClose(event.code),
         });
       }
       finishClosed(event.reason);
