@@ -35,7 +35,7 @@ class FakeProvider implements TranscriptionProvider {
   }
 }
 
-function createHarness(apiKey: string | undefined = 'main-process-secret') {
+function createHarness(options: { readonly apiKey?: string } = { apiKey: 'main-process-secret' }) {
   let sink: AudioIpcSink | undefined;
   const controller: AudioIpcController = {
     setSink: (next) => {
@@ -47,7 +47,7 @@ function createHarness(apiKey: string | undefined = 'main-process-secret') {
   const providers: FakeProvider[] = [];
   const emit = vi.fn();
   const runtime = new TranscriptionRuntime(ingress, emit, {
-    getApiKey: () => apiKey,
+    getApiKey: () => options.apiKey,
     createSessionId: () => 'session-1',
     createProvider: () => {
       const provider = new FakeProvider(`fake-${providers.length}`);
@@ -78,7 +78,7 @@ describe('TranscriptionRuntime', () => {
   });
 
   it('never creates a provider when the main-process API key is missing', async () => {
-    const harness = createHarness(undefined);
+    const harness = createHarness({ apiKey: undefined });
 
     await expect(harness.runtime.start()).rejects.toThrow('DEEPGRAM_API_KEY');
     expect(harness.providers).toHaveLength(0);
