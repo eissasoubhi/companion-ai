@@ -13,15 +13,17 @@ import {
   configureSystemAudioCapture,
   getSystemAudioCapability,
 } from './system-audio.js';
+import { TranscriptionIngress } from './transcription-ingress.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
-function registerIpcHandlers(): void {
+function registerIpcHandlers(): TranscriptionIngress {
   ipcMain.handle('microphone:get-permission', () => getMicrophonePermissionStatus());
   ipcMain.handle('microphone:request-permission', () => requestMicrophonePermission());
   ipcMain.handle('system-audio:get-capability', () => getSystemAudioCapability());
   ipcMain.handle('network:run-diagnostic', () => runNetworkDiagnostic());
-  registerAudioIpcHandlers();
+
+  return new TranscriptionIngress(registerAudioIpcHandlers());
 }
 
 function createMainWindow(): BrowserWindow {
@@ -52,8 +54,12 @@ function createMainWindow(): BrowserWindow {
 app.whenReady().then(() => {
   configureMediaPermissionHandlers(session.defaultSession);
   configureSystemAudioCapture(session.defaultSession);
-  registerIpcHandlers();
+  const transcriptionIngress = registerIpcHandlers();
   createMainWindow();
+
+  app.once('before-quit', () => {
+    void transcriptionIngress.deactivate();
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
