@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { QuestionStream } from '@companion-ai/conversation';
+
 import { registerAudioIpcHandlers } from './audio-ipc.js';
 import {
   configureMediaPermissionHandlers,
@@ -18,6 +20,12 @@ import { TranscriptionRuntime } from './transcription-runtime.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
+function broadcast(channel: string, payload: unknown): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(channel, payload);
+  }
+}
+
 function registerIpcHandlers(): TranscriptionRuntime {
   ipcMain.handle('microphone:get-permission', () => getMicrophonePermissionStatus());
   ipcMain.handle('microphone:request-permission', () => requestMicrophonePermission());
@@ -25,9 +33,13 @@ function registerIpcHandlers(): TranscriptionRuntime {
   ipcMain.handle('network:run-diagnostic', () => runNetworkDiagnostic());
 
   const ingress = new TranscriptionIngress(registerAudioIpcHandlers());
+  const questions = new QuestionStream();
   const runtime = new TranscriptionRuntime(ingress, (event) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.webContents.send('transcription:event', event);
+    broadcast('transcription:event', event);
+
+    if (event.type === 'transcript') {
+      const question = questions.process(event.segment);
+      if (question) broadcast('question:event', question);
     }
   });
 
@@ -39,7 +51,10 @@ function registerIpcHandlers(): TranscriptionRuntime {
         : undefined;
     return runtime.start(language === undefined ? {} : { language });
   });
-  ipcMain.handle('transcription:stop', () => runtime.stop());
+  ipcMain.handle('transcription:stop', async () => {
+    await runtime.stop();
+    questions.reset();
+  });
 
   return runtime;
 }
