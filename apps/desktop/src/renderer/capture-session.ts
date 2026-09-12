@@ -56,6 +56,13 @@ function firstRejectedReason(results: readonly PromiseSettledResult<unknown>[]):
   )?.reason;
 }
 
+function degradedStartupError(
+  source: LiveAudioSource,
+  reason: CaptureSessionDegradedReason,
+): Error {
+  return new Error(`Capture degraded during startup (${source}: ${reason})`);
+}
+
 export async function startCaptureSession(
   options: CaptureSessionOptions = {},
   dependencies: CaptureSessionDependencies = defaultDependencies(),
@@ -65,6 +72,51 @@ export async function startCaptureSession(
   let localHandle: LiveAudioStreamHandle | undefined;
   let remoteHandle: LiveAudioStreamHandle | undefined;
   let transcriptionStarted = false;
+  let ready = false;
+  let degradationHandled = false;
+  let degradedDuringStartup:
+    | { readonly source: LiveAudioSource; readonly reason: CaptureSessionDegradedReason }
+    | undefined;
+  let stopping: Promise<void> | undefined;
+
+  const stop = (): Promise<void> => {
+    if (stopping) return stopping;
+
+    stopping = (async () => {
+      const operations: Promise<unknown>[] = [];
+
+      if (localHandle) operations.push(localHandle.stop());
+      else stopRawStream(localStream);
+
+      if (remoteHandle) operations.push(remoteHandle.stop());
+      else stopRawStream(remoteStream);
+
+      if (transcriptionStarted) operations.push(dependencies.stopTranscription());
+
+      const results = await Promise.allSettled(operations);
+      const error = firstRejectedReason(results);
+      if (error !== undefined) throw error;
+    })();
+
+    return stopping;
+  };
+
+  const onDegraded = (
+    source: LiveAudioSource,
+    reason: CaptureSessionDegradedReason,
+    error?: unknown,
+  ): void => {
+    if (degradationHandled) return;
+    degradationHandled = true;
+    options.onDegraded?.(source, reason, error);
+
+    if (!ready) {
+      degradedDuringStartup = { source, reason };
+      return;
+    }
+
+    void stop().catch(() => undefined);
+  };
 
   try {
     localStream = await dependencies.getUserMedia({ audio: true, video: false });
@@ -80,32 +132,25 @@ export async function startCaptureSession(
       stream: localStream,
       source: 'local',
       sessionId,
-      onDegraded: (reason, error) => options.onDegraded?.('local', reason, error),
+      onDegraded: (reason, error) => onDegraded('local', reason, error),
     });
 
     remoteHandle = await dependencies.startLiveAudioStream({
       stream: remoteStream,
       source: 'remote',
       sessionId,
-      onDegraded: (reason, error) => options.onDegraded?.('remote', reason, error),
+      onDegraded: (reason, error) => onDegraded('remote', reason, error),
     });
 
-    let stopping: Promise<void> | undefined;
-    const stop = (): Promise<void> => {
-      if (stopping) return stopping;
+    if (degradedDuringStartup) {
+      await stop();
+      throw degradedStartupError(
+        degradedDuringStartup.source,
+        degradedDuringStartup.reason,
+      );
+    }
 
-      stopping = (async () => {
-        const results = await Promise.allSettled([
-          localHandle?.stop() ?? Promise.resolve(),
-          remoteHandle?.stop() ?? Promise.resolve(),
-          dependencies.stopTranscription(),
-        ]);
-        const error = firstRejectedReason(results);
-        if (error !== undefined) throw error;
-      })();
-
-      return stopping;
-    };
+    ready = true;
 
     return {
       sessionId,
@@ -114,13 +159,7 @@ export async function startCaptureSession(
       stop,
     };
   } catch (error) {
-    const cleanup: Promise<unknown>[] = [];
-    if (localHandle) cleanup.push(localHandle.stop());
-    else stopRawStream(localStream);
-    if (remoteHandle) cleanup.push(remoteHandle.stop());
-    else stopRawStream(remoteStream);
-    if (transcriptionStarted) cleanup.push(dependencies.stopTranscription());
-    await Promise.allSettled(cleanup);
+    await Promise.allSettled([stop()]);
     throw error;
   }
 }

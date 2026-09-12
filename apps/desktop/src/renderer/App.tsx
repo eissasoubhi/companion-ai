@@ -195,7 +195,31 @@ export function App() {
     try {
       const session = await startCaptureSession({
         onDegraded: (source, reason) => {
-          setLiveError(`${source === 'local' ? 'Microphone' : 'Remote audio'} degraded: ${reason}.`);
+          captureSessionRef.current = null;
+          setActiveSessionId(null);
+          setAnswerState(initialLiveAnswerState);
+          setManualQuestion('');
+          setManualAskBusy(false);
+
+          if (source === 'local') {
+            setMicrophoneState('blocked');
+            setMicrophoneResult({
+              state: 'blocked',
+              message: 'Microphone capture stopped during the live session.',
+              action: 'Run diagnostics again before restarting the live session.',
+            });
+          } else {
+            setSystemAudioState('blocked');
+            setSystemAudioResult({
+              state: 'blocked',
+              signalDetected: false,
+              message: 'Remote audio capture stopped during the live session.',
+              action: 'Run diagnostics again and reselect a source with system audio.',
+            });
+          }
+
+          setLiveError(`${source === 'local' ? 'Microphone' : 'Remote audio'} degraded: ${reason}. Run diagnostics before restarting.`);
+          setLiveState('error');
         },
       });
       captureSessionRef.current = session;
