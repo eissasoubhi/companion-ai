@@ -84,6 +84,45 @@ declare global {
     readonly detectedAtMs: number;
   }
 
+  type RendererAnswerEvent =
+    | {
+        readonly type: 'suggestion';
+        readonly suggestion: {
+          readonly id: string;
+          readonly sessionId: string;
+          readonly questionId: string;
+          readonly text: string;
+          readonly length: 'short' | 'normal' | 'detailed';
+          readonly status: 'streaming' | 'complete' | 'cancelled' | 'failed';
+          readonly grounding: readonly unknown[];
+          readonly createdAtMs: number;
+        };
+        readonly metrics: {
+          readonly providerId: string;
+          readonly requestId: string;
+          readonly startedAtMs: number;
+          readonly firstTokenAtMs?: number | undefined;
+          readonly completedAtMs?: number | undefined;
+          readonly timeToFirstTokenMs?: number | undefined;
+          readonly totalDurationMs?: number | undefined;
+        };
+      }
+    | {
+        readonly type: 'provider-error';
+        readonly providerId: string;
+        readonly requestId: string;
+        readonly code: string;
+        readonly message: string;
+        readonly retryable: boolean;
+      }
+    | {
+        readonly type: 'runtime-error';
+        readonly sessionId: string;
+        readonly questionId: string;
+        readonly code: string;
+        readonly message: string;
+      };
+
   interface Window {
     companion: {
       readonly platform: string;
@@ -107,6 +146,9 @@ declare global {
       };
       readonly questions: {
         onDetected(listener: (question: RendererDetectedQuestion) => void): () => void;
+      };
+      readonly answers: {
+        onEvent(listener: (event: RendererAnswerEvent) => void): () => void;
       };
     };
   }
