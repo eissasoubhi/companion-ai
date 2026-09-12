@@ -65,6 +65,12 @@ describe('reduceLiveAnswerEvent', () => {
     ).toBe(current);
   });
 
+  it('ignores events when no live session is active', () => {
+    expect(
+      reduceLiveAnswerEvent(initialLiveAnswerState, suggestion('session-1', 'Late answer'), null),
+    ).toBe(initialLiveAnswerState);
+  });
+
   it('surfaces active-session runtime failures without leaking stale failures', () => {
     const activeFailure: RendererAnswerEvent = {
       type: 'runtime-error',
