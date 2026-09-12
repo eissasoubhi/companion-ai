@@ -15,4 +15,13 @@ contextBridge.exposeInMainWorld('companion', {
   audio: {
     writeChunk: (chunk: unknown) => ipcRenderer.invoke('audio:write-chunk', chunk),
   },
+  transcription: {
+    start: (options: unknown) => ipcRenderer.invoke('transcription:start', options),
+    stop: () => ipcRenderer.invoke('transcription:stop'),
+    onEvent: (listener: (event: unknown) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => listener(payload);
+      ipcRenderer.on('transcription:event', handler);
+      return () => ipcRenderer.removeListener('transcription:event', handler);
+    },
+  },
 });
