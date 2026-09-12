@@ -6,6 +6,7 @@ import { QuestionStream } from '@companion-ai/conversation';
 
 import { AnswerRuntime } from './answer-runtime.js';
 import { registerAudioIpcHandlers } from './audio-ipc.js';
+import { createManualQuestion, parseManualQuestionRequest } from './manual-question.js';
 import {
   configureMediaPermissionHandlers,
   getMicrophonePermissionStatus,
@@ -73,6 +74,12 @@ function registerIpcHandlers(): {
     } finally {
       questions.reset();
     }
+  });
+  ipcMain.handle('answer:ask', async (_event, payload: unknown) => {
+    const request = parseManualQuestionRequest(payload);
+    const question = createManualQuestion(request, transcription.activeSessionId);
+    broadcast('question:event', question);
+    await answers.handleQuestion(question);
   });
 
   return { transcription, answers };
