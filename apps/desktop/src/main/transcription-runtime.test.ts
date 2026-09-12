@@ -16,15 +16,18 @@ class FakeProvider implements TranscriptionProvider {
   readonly id: string;
   readonly writes: AudioChunk[] = [];
   readonly close = vi.fn(async () => undefined);
+  readonly #connectGate: Promise<void> | undefined;
 
-  constructor(id: string) {
+  constructor(id: string, connectGate?: Promise<void>) {
     this.id = id;
+    this.#connectGate = connectGate;
   }
 
   async connect(
     _request: TranscriptionConnectRequest,
     onEvent: TranscriptionProviderEventHandler,
   ): Promise<TranscriptionConnection> {
+    if (this.#connectGate) await this.#connectGate;
     onEvent({ type: 'ready' });
     return {
       write: async (chunk) => {
@@ -35,7 +38,12 @@ class FakeProvider implements TranscriptionProvider {
   }
 }
 
-function createHarness(options: { readonly apiKey?: string | undefined } = { apiKey: 'main-process-secret' }) {
+function createHarness(
+  options: {
+    readonly apiKey?: string | undefined;
+    readonly connectGate?: Promise<void> | undefined;
+  } = { apiKey: 'main-process-secret' },
+) {
   let sink: AudioIpcSink | undefined;
   const controller: AudioIpcController = {
     setSink: (next) => {
@@ -50,7 +58,7 @@ function createHarness(options: { readonly apiKey?: string | undefined } = { api
     getApiKey: () => options.apiKey,
     createSessionId: () => 'session-1',
     createProvider: () => {
-      const provider = new FakeProvider(`fake-${providers.length}`);
+      const provider = new FakeProvider(`fake-${providers.length}`, options.connectGate);
       providers.push(provider);
       return provider;
     },
@@ -92,5 +100,29 @@ describe('TranscriptionRuntime', () => {
     await expect(harness.runtime.start()).rejects.toThrow('already active or starting');
 
     await harness.runtime.stop();
+  });
+
+  it('does not reactivate a session when stop wins a start race', async () => {
+    let releaseConnect!: () => void;
+    const connectGate = new Promise<void>((resolve) => {
+      releaseConnect = resolve;
+    });
+    const harness = createHarness({
+      apiKey: 'main-process-secret',
+      connectGate,
+    });
+
+    const startPromise = harness.runtime.start();
+    await Promise.resolve();
+    expect(harness.providers).toHaveLength(2);
+
+    await harness.runtime.stop();
+    releaseConnect();
+
+    await expect(startPromise).rejects.toThrow('start was cancelled');
+    expect(harness.runtime.activeSessionId).toBeUndefined();
+    expect(harness.getSink()).toBeUndefined();
+    expect(harness.providers[0]?.close).toHaveBeenCalledOnce();
+    expect(harness.providers[1]?.close).toHaveBeenCalledOnce();
   });
 });
