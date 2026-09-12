@@ -104,4 +104,34 @@ describe('TranscriptionIngress', () => {
     await expect(oldSink?.writeAudio(chunk())).rejects.toThrow('no longer active');
     expect(writeAudio).not.toHaveBeenCalled();
   });
+
+  it('blocks a new session until the old provider connections finish closing', async () => {
+    const { ingress } = harness();
+    let releaseClose: (() => void) | undefined;
+    const close = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseClose = resolve;
+        }),
+    );
+    const next = {
+      sessionId: 'session-2',
+      writeAudio: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    };
+
+    ingress.activate({
+      sessionId: 'session-1',
+      writeAudio: vi.fn(async () => undefined),
+      close,
+    });
+    const deactivating = ingress.deactivate();
+
+    expect(() => ingress.activate(next)).toThrow('closing');
+    releaseClose?.();
+    await deactivating;
+
+    ingress.activate(next);
+    expect(ingress.activeSessionId).toBe('session-2');
+  });
 });
