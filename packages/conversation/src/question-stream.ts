@@ -1,5 +1,4 @@
 import type { DetectedQuestion, TranscriptSegment } from '@companion-ai/contracts';
-import type { TranscriptionPipelineEvent } from '@companion-ai/transcription';
 
 import {
   defaultQuestionDetectionConfig,
@@ -104,10 +103,7 @@ export class QuestionStream {
     };
   }
 
-  process(event: TranscriptionPipelineEvent): DetectedQuestion | undefined {
-    if (event.type !== 'transcript') return undefined;
-
-    const { segment } = event;
+  process(segment: TranscriptSegment): DetectedQuestion | undefined {
     if (segment.source !== 'remote' || !segment.isFinal) return undefined;
 
     if (this.#sessionId !== segment.sessionId) {
