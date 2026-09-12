@@ -65,6 +65,9 @@ function errorMessage(value: unknown, fallback: string): string {
       const nested = value.error;
       if ('message' in nested && typeof nested.message === 'string') return nested.message;
     }
+    if ('response' in value && typeof value.response === 'object' && value.response !== null) {
+      return errorMessage(value.response, fallback);
+    }
   }
   return fallback;
 }
@@ -75,6 +78,9 @@ function errorCode(value: unknown, fallback: string): string {
     if ('error' in value && typeof value.error === 'object' && value.error !== null) {
       const nested = value.error;
       if ('code' in nested && typeof nested.code === 'string') return nested.code;
+    }
+    if ('response' in value && typeof value.response === 'object' && value.response !== null) {
+      return errorCode(value.response, fallback);
     }
   }
   return fallback;
@@ -92,6 +98,12 @@ async function readErrorBody(response: Response): Promise<unknown> {
   }
 }
 
+function findEventBoundary(buffer: string): { index: number; length: number } | undefined {
+  const match = /\r?\n\r?\n/u.exec(buffer);
+  if (!match || match.index === undefined) return undefined;
+  return { index: match.index, length: match[0].length };
+}
+
 async function* parseSse(
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal,
@@ -106,10 +118,10 @@ async function* parseSse(
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
 
-      let boundary = buffer.indexOf('\n\n');
-      while (boundary >= 0) {
-        const block = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
+      let boundary = findEventBoundary(buffer);
+      while (boundary) {
+        const block = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary.length);
 
         const data = block
           .split(/\r?\n/u)
@@ -137,7 +149,7 @@ async function* parseSse(
           }
         }
 
-        boundary = buffer.indexOf('\n\n');
+        boundary = findEventBoundary(buffer);
       }
     }
   } finally {
@@ -216,30 +228,41 @@ export class OpenAILLMProvider implements LLMProvider {
       return;
     }
 
-    for await (const event of parseSse(response.body, signal)) {
-      if (signal.aborted) return;
+    try {
+      for await (const event of parseSse(response.body, signal)) {
+        if (signal.aborted) return;
 
-      if (event.type === 'response.output_text.delta') {
-        if (typeof event.delta === 'string' && event.delta.length > 0) {
-          yield { type: 'delta', text: event.delta };
+        if (event.type === 'response.output_text.delta') {
+          if (typeof event.delta === 'string' && event.delta.length > 0) {
+            yield { type: 'delta', text: event.delta };
+          }
+          continue;
         }
-        continue;
-      }
 
-      if (event.type === 'response.completed') {
-        yield { type: 'completed', finishReason: 'stop' };
-        return;
-      }
+        if (event.type === 'response.completed') {
+          yield { type: 'completed', finishReason: 'stop' };
+          return;
+        }
 
-      if (event.type === 'response.failed' || event.type === 'error') {
-        yield {
-          type: 'error',
-          code: errorCode(event, 'provider-error'),
-          message: errorMessage(event, 'OpenAI generation failed.'),
-          retryable: event.type === 'response.failed',
-        };
-        return;
+        if (event.type === 'response.failed' || event.type === 'error') {
+          yield {
+            type: 'error',
+            code: errorCode(event, 'provider-error'),
+            message: errorMessage(event, 'OpenAI generation failed.'),
+            retryable: event.type === 'response.failed',
+          };
+          return;
+        }
       }
+    } catch (error) {
+      if (signal.aborted) return;
+      yield {
+        type: 'error',
+        code: 'stream-read-error',
+        message: error instanceof Error ? error.message : 'OpenAI stream read failed.',
+        retryable: true,
+      };
+      return;
     }
 
     if (!signal.aborted) {
