@@ -37,8 +37,8 @@ describe('TranscriptionIngress', () => {
     await getSink()?.writeAudio(chunk('session-1', 'remote'));
 
     expect(writeAudio).toHaveBeenCalledTimes(2);
-    expect(writeAudio.mock.calls[0]?.[0].source).toBe('local');
-    expect(writeAudio.mock.calls[1]?.[0].source).toBe('remote');
+    expect(writeAudio).toHaveBeenNthCalledWith(1, expect.objectContaining({ source: 'local' }));
+    expect(writeAudio).toHaveBeenNthCalledWith(2, expect.objectContaining({ source: 'remote' }));
   });
 
   it('rejects chunks from a different session before provider write', async () => {
