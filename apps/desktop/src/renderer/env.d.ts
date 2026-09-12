@@ -26,6 +26,17 @@ declare global {
     readonly action?: string | undefined;
   }
 
+  interface RendererAudioChunk {
+    readonly sessionId: string;
+    readonly source: 'local' | 'remote';
+    readonly sequence: number;
+    readonly capturedAtMs: number;
+    readonly sampleRateHz: number;
+    readonly channels: 1;
+    readonly encoding: 'pcm-s16le';
+    readonly data: Uint8Array;
+  }
+
   interface Window {
     companion: {
       readonly platform: string;
@@ -38,6 +49,9 @@ declare global {
       };
       readonly network: {
         runDiagnostic(): Promise<NetworkDiagnosticResult>;
+      };
+      readonly audio: {
+        writeChunk(chunk: RendererAudioChunk): Promise<void>;
       };
     };
   }
