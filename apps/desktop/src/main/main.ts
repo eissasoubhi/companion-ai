@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { QuestionStream } from '@companion-ai/conversation';
 
+import { AnswerRuntime } from './answer-runtime.js';
 import { registerAudioIpcHandlers } from './audio-ipc.js';
 import {
   configureMediaPermissionHandlers,
@@ -11,6 +12,7 @@ import {
   requestMicrophonePermission,
 } from './media-permissions.js';
 import { runNetworkDiagnostic } from './network-diagnostic.js';
+import { createOpenAIProviderFromEnv } from './openai-llm-provider.js';
 import {
   configureSystemAudioCapture,
   getSystemAudioCapability,
@@ -26,7 +28,10 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
-function registerIpcHandlers(): TranscriptionRuntime {
+function registerIpcHandlers(): {
+  readonly transcription: TranscriptionRuntime;
+  readonly answers: AnswerRuntime;
+} {
   ipcMain.handle('microphone:get-permission', () => getMicrophonePermissionStatus());
   ipcMain.handle('microphone:request-permission', () => requestMicrophonePermission());
   ipcMain.handle('system-audio:get-capability', () => getSystemAudioCapability());
@@ -34,12 +39,22 @@ function registerIpcHandlers(): TranscriptionRuntime {
 
   const ingress = new TranscriptionIngress(registerAudioIpcHandlers());
   const questions = new QuestionStream();
-  const runtime = new TranscriptionRuntime(ingress, (event) => {
+  const answers = new AnswerRuntime({
+    createProvider: () => createOpenAIProviderFromEnv(),
+    // Verified context persistence/import is a separate P0 lane. Until it exists,
+    // generation receives no private context rather than unverified renderer data.
+    getContextItems: () => [],
+    emit: (event) => broadcast('answer:event', event),
+  });
+  const transcription = new TranscriptionRuntime(ingress, (event) => {
     broadcast('transcription:event', event);
 
     if (event.type === 'transcript') {
       const question = questions.process(event.segment);
-      if (question) broadcast('question:event', question);
+      if (question) {
+        broadcast('question:event', question);
+        void answers.handleQuestion(question);
+      }
     }
   });
 
@@ -49,17 +64,18 @@ function registerIpcHandlers(): TranscriptionRuntime {
       'language' in options && typeof options.language === 'string'
         ? options.language.trim() || undefined
         : undefined;
-    return runtime.start(language === undefined ? {} : { language });
+    return transcription.start(language === undefined ? {} : { language });
   });
   ipcMain.handle('transcription:stop', async () => {
+    answers.stop();
     try {
-      await runtime.stop();
+      await transcription.stop();
     } finally {
       questions.reset();
     }
   });
 
-  return runtime;
+  return { transcription, answers };
 }
 
 function createMainWindow(): BrowserWindow {
@@ -90,11 +106,12 @@ function createMainWindow(): BrowserWindow {
 app.whenReady().then(() => {
   configureMediaPermissionHandlers(session.defaultSession);
   configureSystemAudioCapture(session.defaultSession);
-  const transcriptionRuntime = registerIpcHandlers();
+  const runtimes = registerIpcHandlers();
   createMainWindow();
 
   app.once('before-quit', () => {
-    void transcriptionRuntime.stop();
+    runtimes.answers.stop();
+    void runtimes.transcription.stop();
   });
 
   app.on('activate', () => {
