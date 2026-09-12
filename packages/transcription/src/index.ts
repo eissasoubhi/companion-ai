@@ -1,5 +1,6 @@
 export * from './benchmark-corpus.js';
 export * from './benchmark-metrics.js';
+export * from './benchmark-runner.js';
 export * from './channel.js';
 export * from './latency-metrics.js';
 export * from './latency-window.js';
