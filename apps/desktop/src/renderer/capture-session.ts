@@ -115,7 +115,7 @@ export async function startCaptureSession(
       return;
     }
 
-    void stop();
+    void stop().catch(() => undefined);
   };
 
   try {
