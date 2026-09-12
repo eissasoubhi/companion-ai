@@ -52,8 +52,11 @@ function registerIpcHandlers(): TranscriptionRuntime {
     return runtime.start(language === undefined ? {} : { language });
   });
   ipcMain.handle('transcription:stop', async () => {
-    await runtime.stop();
-    questions.reset();
+    try {
+      await runtime.stop();
+    } finally {
+      questions.reset();
+    }
   });
 
   return runtime;
