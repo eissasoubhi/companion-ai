@@ -69,6 +69,7 @@ export class TranscriptionRuntime {
   readonly #dependencies: TranscriptionRuntimeDependencies;
   #sessionId: string | undefined;
   #starting = false;
+  #lifecycleVersion = 0;
 
   constructor(
     ingress: TranscriptionIngress,
@@ -91,6 +92,7 @@ export class TranscriptionRuntime {
     }
 
     this.#starting = true;
+    const lifecycleVersion = ++this.#lifecycleVersion;
     const sessionId = this.#dependencies.createSessionId();
     let session: TranscriptionSession | undefined;
 
@@ -103,6 +105,13 @@ export class TranscriptionRuntime {
         partialResults: true,
         ...(options.language === undefined ? {} : { language: options.language }),
       });
+
+      if (lifecycleVersion !== this.#lifecycleVersion) {
+        await session.close();
+        session = undefined;
+        throw new Error('Transcription start was cancelled.');
+      }
+
       this.#ingress.activate(session);
       this.#sessionId = sessionId;
       return { sessionId };
@@ -115,6 +124,7 @@ export class TranscriptionRuntime {
   }
 
   async stop(): Promise<void> {
+    ++this.#lifecycleVersion;
     this.#sessionId = undefined;
     await this.#ingress.deactivate();
   }
