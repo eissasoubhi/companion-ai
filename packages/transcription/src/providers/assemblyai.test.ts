@@ -170,6 +170,20 @@ describe('AssemblyAIUniversal35Provider', () => {
     vi.useRealTimers();
   });
 
+  it('fails connect immediately when the socket closes before opening', async () => {
+    const socket = new FakeSocket();
+    const provider = new AssemblyAIUniversal35Provider({
+      createSocket: () => socket,
+      sampleRateHz: 16_000,
+      openTimeoutMs: 8_000,
+    });
+
+    const connecting = provider.connect(request, vi.fn());
+    socket.emitClose({ code: 1006, reason: 'handshake failed' });
+
+    await expect(connecting).rejects.toThrow('closed before opening: handshake failed');
+  });
+
   it('marks transient unexpected socket closes retryable', async () => {
     const socket = new FakeSocket();
     const events: TranscriptionProviderEvent[] = [];
@@ -188,6 +202,27 @@ describe('AssemblyAIUniversal35Provider', () => {
       code: 'socket_closed_1013',
       message: 'try later',
       retryable: true,
+    });
+  });
+
+  it('marks terminal unexpected socket closes non-retryable', async () => {
+    const socket = new FakeSocket();
+    const events: TranscriptionProviderEvent[] = [];
+    const provider = new AssemblyAIUniversal35Provider({
+      createSocket: () => socket,
+      sampleRateHz: 16_000,
+    });
+
+    const connecting = provider.connect(request, (event) => events.push(event));
+    socket.emitOpen();
+    await connecting;
+    socket.emitClose({ code: 4001, reason: 'unauthorized' });
+
+    expect(events).toContainEqual({
+      type: 'error',
+      code: 'socket_closed_4001',
+      message: 'unauthorized',
+      retryable: false,
     });
   });
 
