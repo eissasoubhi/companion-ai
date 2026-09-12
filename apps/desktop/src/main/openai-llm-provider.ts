@@ -279,8 +279,9 @@ export class OpenAILLMProvider implements LLMProvider {
 export function createOpenAIProviderFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): OpenAILLMProvider {
+  const model = env.OPENAI_MODEL?.trim();
   return new OpenAILLMProvider({
     apiKey: env.OPENAI_API_KEY ?? '',
-    model: env.OPENAI_MODEL,
+    ...(model ? { model } : {}),
   });
 }
