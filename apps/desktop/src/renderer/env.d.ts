@@ -37,6 +37,36 @@ declare global {
     readonly data: Uint8Array;
   }
 
+  type RendererTranscriptionEvent =
+    | {
+        readonly type: 'transcript';
+        readonly segment: {
+          readonly id: string;
+          readonly sessionId: string;
+          readonly source: 'local' | 'remote' | 'unknown';
+          readonly text: string;
+          readonly isFinal: boolean;
+          readonly startedAtMs: number;
+          readonly endedAtMs?: number | undefined;
+        };
+      }
+    | {
+        readonly type: 'provider-ready' | 'provider-closed';
+        readonly providerId: string;
+        readonly sessionId: string;
+        readonly source: 'local' | 'remote' | 'unknown';
+        readonly reason?: string | undefined;
+      }
+    | {
+        readonly type: 'provider-error';
+        readonly providerId: string;
+        readonly sessionId: string;
+        readonly source: 'local' | 'remote' | 'unknown';
+        readonly code: string;
+        readonly message: string;
+        readonly retryable: boolean;
+      };
+
   interface Window {
     companion: {
       readonly platform: string;
@@ -52,6 +82,11 @@ declare global {
       };
       readonly audio: {
         writeChunk(chunk: RendererAudioChunk): Promise<void>;
+      };
+      readonly transcription: {
+        start(options?: { readonly language?: string | undefined }): Promise<{ sessionId: string }>;
+        stop(): Promise<void>;
+        onEvent(listener: (event: RendererTranscriptionEvent) => void): () => void;
       };
     };
   }
