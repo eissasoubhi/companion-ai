@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const handle = vi.fn();
-const removeHandler = vi.fn();
+const { handle, removeHandler } = vi.hoisted(() => ({
+  handle: vi.fn(),
+  removeHandler: vi.fn(),
+}));
 
 vi.mock('electron', () => ({
   ipcMain: { handle, removeHandler },
