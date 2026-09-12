@@ -50,16 +50,41 @@ function assertFixtureSet(
     }
     fixtureIds.add(fixture.caseId);
 
+    if (fixture.source !== 'local' && fixture.source !== 'remote') {
+      throw new Error(`benchmark fixture source must be local or remote: ${fixture.caseId}`);
+    }
     if (fixture.chunks.length === 0) {
       throw new Error(`benchmark fixture has no audio chunks: ${fixture.caseId}`);
     }
 
     let previousSequence = -1;
+    const firstChunk = fixture.chunks[0];
+    if (!firstChunk) {
+      throw new Error(`benchmark fixture has no audio chunks: ${fixture.caseId}`);
+    }
+
     for (const chunk of fixture.chunks) {
       if (!Number.isInteger(chunk.sequence) || chunk.sequence <= previousSequence) {
         throw new RangeError(
           `benchmark fixture chunk sequence must increase monotonically: ${fixture.caseId}`,
         );
+      }
+      if (
+        chunk.data.byteLength === 0 ||
+        !Number.isFinite(chunk.capturedAtMs) ||
+        !Number.isFinite(chunk.sampleRateHz) ||
+        chunk.sampleRateHz <= 0 ||
+        !Number.isInteger(chunk.channels) ||
+        chunk.channels <= 0
+      ) {
+        throw new RangeError(`benchmark fixture audio chunk is invalid: ${fixture.caseId}`);
+      }
+      if (
+        chunk.encoding !== firstChunk.encoding ||
+        chunk.sampleRateHz !== firstChunk.sampleRateHz ||
+        chunk.channels !== firstChunk.channels
+      ) {
+        throw new Error(`benchmark fixture audio format changes mid-stream: ${fixture.caseId}`);
       }
       previousSequence = chunk.sequence;
     }
@@ -89,6 +114,7 @@ async function executeFixture(
 ): Promise<TranscriptBenchmarkObservation> {
   const finalTexts: string[] = [];
   const latencySamples: TranscriptLatencySample[] = [];
+  let providerFailure: Error | undefined;
   let resolveFinal: (() => void) | undefined;
   let rejectFinal: ((error: Error) => void) | undefined;
   let finalSettled = false;
@@ -114,13 +140,13 @@ async function executeFixture(
           settleFinal();
         }
         return;
-      case 'provider-error':
-        settleFinal(
-          new Error(
-            `${provider.id} benchmark failed for ${fixture.caseId}: ${event.code}: ${event.message}`,
-          ),
+      case 'provider-error': {
+        providerFailure ??= new Error(
+          `${provider.id} benchmark failed for ${fixture.caseId}: ${event.code}: ${event.message}`,
         );
+        settleFinal(providerFailure);
         return;
+      }
       case 'provider-closed':
         if (finalTexts.length === 0) {
           settleFinal(
@@ -173,6 +199,7 @@ async function executeFixture(
     await timedFinal;
     await closePromise;
 
+    if (providerFailure) throw providerFailure;
     if (finalTexts.length === 0) {
       throw new Error(`${provider.id} benchmark produced no final transcript: ${fixture.caseId}`);
     }
