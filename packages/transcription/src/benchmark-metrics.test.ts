@@ -28,9 +28,10 @@ describe('transcript benchmark metrics', () => {
     expect(calculateKeyTermAccuracy('React Native', ['React', 'AWS'])).toBe(0.5);
     expect(calculateKeyTermAccuracy('Kubernetes', ['Kube'])).toBe(0);
     expect(calculateKeyTermAccuracy('anything', [])).toBeNull();
+    expect(calculateKeyTermAccuracy('anything', ['', '   '])).toBeNull();
   });
 
-  it('aggregates WER by reference word count and keeps per-sample evidence', () => {
+  it('aggregates WER and key-term accuracy by their underlying counts', () => {
     const summary = summarizeTranscriptBenchmark([
       {
         id: 'en-tech',
@@ -49,7 +50,28 @@ describe('transcript benchmark metrics', () => {
     expect(summary.sampleCount).toBe(2);
     expect(summary.referenceWordCount).toBe(5);
     expect(summary.wordErrorRate).toBeCloseTo(1 / 5);
-    expect(summary.keyTermAccuracy).toBeCloseTo(0.75);
+    expect(summary.keyTermCount).toBe(5);
+    expect(summary.keyTermMatches).toBe(4);
+    expect(summary.keyTermAccuracy).toBeCloseTo(4 / 5);
     expect(summary.samples.map((sample) => sample.id)).toEqual(['en-tech', 'fr-tech']);
+  });
+
+  it('does not give a one-term sample the same weight as a many-term sample', () => {
+    const summary = summarizeTranscriptBenchmark([
+      {
+        id: 'single-miss',
+        reference: 'Docker',
+        hypothesis: 'doctor',
+        keyTerms: ['Docker'],
+      },
+      {
+        id: 'many-hit',
+        reference: 'PHP Symfony React AWS',
+        hypothesis: 'PHP Symfony React AWS',
+        keyTerms: ['PHP', 'Symfony', 'React', 'AWS'],
+      },
+    ]);
+
+    expect(summary.keyTermAccuracy).toBeCloseTo(4 / 5);
   });
 });
