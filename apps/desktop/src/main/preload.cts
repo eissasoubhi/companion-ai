@@ -31,4 +31,11 @@ contextBridge.exposeInMainWorld('companion', {
       return () => ipcRenderer.removeListener('question:event', handler);
     },
   },
+  answers: {
+    onEvent: (listener: (event: unknown) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => listener(payload);
+      ipcRenderer.on('answer:event', handler);
+      return () => ipcRenderer.removeListener('answer:event', handler);
+    },
+  },
 });
