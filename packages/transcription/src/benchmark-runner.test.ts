@@ -101,7 +101,7 @@ describe('summarizeTranscriptBenchmarkRun', () => {
     ).toThrow('unknown benchmark case: unknown');
   });
 
-  it('rejects an empty provider id and supports runs without latency samples', () => {
+  it('rejects an empty or non-canonical provider id and supports runs without latency samples', () => {
     expect(() =>
       summarizeTranscriptBenchmarkRun({
         providerId: '   ',
@@ -112,6 +112,17 @@ describe('summarizeTranscriptBenchmarkRun', () => {
         ],
       }),
     ).toThrow('providerId must not be empty');
+
+    expect(() =>
+      summarizeTranscriptBenchmarkRun({
+        providerId: ' fake-stt ',
+        corpus,
+        observations: [
+          { caseId: 'en-one', hypothesis: 'first' },
+          { caseId: 'fr-two', hypothesis: 'second' },
+        ],
+      }),
+    ).toThrow('providerId must be canonical:  fake-stt ');
 
     const report = summarizeTranscriptBenchmarkRun({
       providerId: 'offline-fixture',
@@ -125,5 +136,24 @@ describe('summarizeTranscriptBenchmarkRun', () => {
     expect(report.accuracy.wordErrorRate).toBe(0);
     expect(report.latency.all.count).toBe(0);
     expect(report.latency.all.p95Ms).toBeNull();
+  });
+
+  it('rejects latency samples attributed to another provider', () => {
+    expect(() =>
+      summarizeTranscriptBenchmarkRun({
+        providerId: 'fake-stt',
+        corpus,
+        observations: [
+          {
+            caseId: 'en-one',
+            hypothesis: 'Explain Symfony and React',
+            latencySamples: [latency({ providerId: 'other-stt' })],
+          },
+          { caseId: 'fr-two', hypothesis: 'Et ensuite' },
+        ],
+      }),
+    ).toThrow(
+      'benchmark latency provider mismatch for en-one: expected fake-stt, received other-stt',
+    );
   });
 });
