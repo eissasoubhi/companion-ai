@@ -9,10 +9,15 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "benchmark:stt": "node dist/benchmark-cli.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@companion-ai/contracts": "workspace:*"
+    "@companion-ai/contracts": "workspace:*",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1"
   }
 }
