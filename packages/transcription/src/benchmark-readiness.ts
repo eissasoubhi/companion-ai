@@ -31,6 +31,21 @@ function candidateReasons(candidate: TranscriptBenchmarkCandidate): string[] {
   const providerId = candidate.report.providerId;
   const reasons: string[] = [];
 
+  if (candidate.report.sampleCount === 0 || candidate.report.accuracy.sampleCount === 0) {
+    reasons.push(`${providerId}: missing accuracy samples`);
+  }
+  if (candidate.report.accuracy.referenceWordCount === 0) {
+    reasons.push(`${providerId}: missing reference transcript words`);
+  }
+  if (!Number.isFinite(candidate.report.accuracy.wordErrorRate) || candidate.report.accuracy.wordErrorRate < 0) {
+    reasons.push(`${providerId}: invalid word error rate`);
+  }
+  if (candidate.report.accuracy.keyTermCount === 0 || candidate.report.accuracy.keyTermAccuracy === null) {
+    reasons.push(`${providerId}: missing technical-term accuracy samples`);
+  } else if (!isRate(candidate.report.accuracy.keyTermAccuracy)) {
+    reasons.push(`${providerId}: invalid technical-term accuracy`);
+  }
+
   if (candidate.report.latency.partial.count === 0) {
     reasons.push(`${providerId}: missing partial transcript latency samples`);
   }
@@ -72,11 +87,16 @@ export function assessTranscriptBenchmarkReadiness(
 ): TranscriptBenchmarkReadiness {
   const reasons: string[] = [];
   const candidatesById = new Map<string, TranscriptBenchmarkCandidate>();
+  const requiredIds = new Set<string>();
 
   for (const candidate of candidates) {
     const providerId = candidate.report.providerId.trim();
     if (providerId.length === 0) {
       reasons.push('candidate providerId must not be empty');
+      continue;
+    }
+    if (providerId !== candidate.report.providerId) {
+      reasons.push(`candidate providerId must be canonical: ${candidate.report.providerId}`);
       continue;
     }
     if (candidatesById.has(providerId)) {
@@ -92,6 +112,16 @@ export function assessTranscriptBenchmarkReadiness(
       reasons.push('required providerId must not be empty');
       continue;
     }
+    if (normalized !== providerId) {
+      reasons.push(`required providerId must be canonical: ${providerId}`);
+      continue;
+    }
+    if (requiredIds.has(normalized)) {
+      reasons.push(`duplicate required providerId: ${normalized}`);
+      continue;
+    }
+    requiredIds.add(normalized);
+
     const candidate = candidatesById.get(normalized);
     if (!candidate) {
       reasons.push(`missing benchmark candidate: ${normalized}`);
