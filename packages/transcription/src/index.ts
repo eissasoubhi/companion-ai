@@ -1,3 +1,4 @@
+export * from './benchmark-batch.js';
 export * from './benchmark-corpus.js';
 export * from './benchmark-execution.js';
 export * from './benchmark-fixture-loader.js';
