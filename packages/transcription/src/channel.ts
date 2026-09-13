@@ -53,11 +53,13 @@ export class TranscriptionChannel {
   #reconnectPolicy: ReconnectPolicy;
   #lastSequence = -1;
   #closed = false;
+  #closing = false;
   #writeInFlight = false;
   #generation = 0;
   #completedReconnectAttempts = 0;
   #reconnectRequested = false;
   #reconnectPromise: Promise<void> | null = null;
+  #closePromise: Promise<void> | null = null;
 
   private constructor(
     provider: TranscriptionProvider,
@@ -111,7 +113,7 @@ export class TranscriptionChannel {
   }
 
   async writeAudio(chunk: AudioChunk): Promise<void> {
-    if (this.#closed) {
+    if (this.#closed || this.#closing) {
       throw new Error('Cannot write audio to a closed transcription channel.');
     }
 
@@ -152,6 +154,7 @@ export class TranscriptionChannel {
       await connection.write(chunk);
       if (
         this.#closed ||
+        this.#closing ||
         this.#reconnectPromise !== null ||
         generation !== this.#generation ||
         connection !== this.#connection
@@ -167,15 +170,41 @@ export class TranscriptionChannel {
   }
 
   async close(): Promise<void> {
+    if (this.#closePromise) return this.#closePromise;
     if (this.#closed) return;
-    this.#closed = true;
-    this.#reconnectRequested = false;
-    this.#generation += 1;
-    await this.#connection.close();
+
+    const closeDuringReconnect = this.#reconnectPromise !== null;
+    if (closeDuringReconnect) {
+      this.#closed = true;
+      this.#reconnectRequested = false;
+      this.#generation += 1;
+    } else {
+      this.#closing = true;
+    }
+
+    const connection = this.#connection;
+    const closePromise = (async () => {
+      try {
+        await connection.close();
+      } finally {
+        if (!closeDuringReconnect) {
+          this.#closed = true;
+          this.#closing = false;
+          this.#generation += 1;
+        }
+      }
+    })();
+    this.#closePromise = closePromise;
+
+    try {
+      await closePromise;
+    } finally {
+      if (this.#closePromise === closePromise) this.#closePromise = null;
+    }
   }
 
   #beginReconnect(): void {
-    if (this.#closed) return;
+    if (this.#closed || this.#closing) return;
     if (this.#reconnectPromise !== null) {
       this.#reconnectRequested = true;
       return;
@@ -186,7 +215,7 @@ export class TranscriptionChannel {
     const clear = () => {
       if (this.#reconnectPromise !== reconnectPromise) return;
       this.#reconnectPromise = null;
-      if (this.#reconnectRequested && !this.#closed) {
+      if (this.#reconnectRequested && !this.#closed && !this.#closing) {
         this.#reconnectRequested = false;
         this.#beginReconnect();
       }
@@ -209,7 +238,7 @@ export class TranscriptionChannel {
     ) {
       const attempt = this.#completedReconnectAttempts + 1;
       await this.#sleep(reconnectDelayMs(attempt, this.#reconnectPolicy));
-      if (this.#closed || generation !== this.#generation) return;
+      if (this.#closed || this.#closing || generation !== this.#generation) return;
 
       const pendingEvents: TranscriptionProviderEvent[] = [];
       let forwardEvent: (event: TranscriptionProviderEvent) => void = (event) => {
@@ -222,7 +251,7 @@ export class TranscriptionChannel {
           (event) => forwardEvent(event),
         );
         this.#completedReconnectAttempts = attempt;
-        if (this.#closed || generation !== this.#generation) {
+        if (this.#closed || this.#closing || generation !== this.#generation) {
           await connection.close();
           return;
         }
@@ -252,7 +281,7 @@ export class TranscriptionChannel {
       }
     }
 
-    if (!this.#closed && generation === this.#generation) {
+    if (!this.#closed && !this.#closing && generation === this.#generation) {
       this.#closed = true;
       this.#reconnectRequested = false;
       this.#emit({
