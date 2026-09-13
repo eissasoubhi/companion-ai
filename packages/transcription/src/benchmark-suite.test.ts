@@ -58,6 +58,7 @@ function candidate(
       ],
     }),
     operational: {
+      providerId,
       endpointFinalizationP95Ms: 120,
       reconnectSuccessRate: 1,
       recoveryP95Ms: 300,
