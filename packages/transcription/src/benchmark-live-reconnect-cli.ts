@@ -22,12 +22,16 @@ export interface LiveReconnectEnvironment {
 
 export interface LiveReconnectCliOptions {
   readonly outputPath: string;
+  readonly benchmarkRunId: string;
+  readonly corpusVersion: string;
   readonly sampleRateHz: number;
   readonly timeoutMs?: number | undefined;
 }
 
 interface LiveReconnectResult {
   readonly schemaVersion: 1;
+  readonly benchmarkRunId: string;
+  readonly corpusVersion: string;
   readonly measuredAt: string;
   readonly source: 'remote';
   readonly sampleRateHz: number;
@@ -42,6 +46,13 @@ interface LiveReconnectResult {
 function requiredSecret(environment: LiveReconnectEnvironment, key: keyof LiveReconnectEnvironment): string {
   const value = environment[key]?.trim();
   if (!value) throw new Error(`${key} is required to run the live STT reconnect benchmark`);
+  return value;
+}
+
+function canonicalId(value: string, field: string): string {
+  if (value.length === 0 || value.trim() !== value) {
+    throw new Error(`${field} must be a non-empty canonical identifier`);
+  }
   return value;
 }
 
@@ -119,10 +130,14 @@ export function createLiveReconnectProviderConfigs(
 }
 
 export function parseLiveReconnectCliArgs(args: readonly string[]): LiveReconnectCliOptions {
-  const [outputPath, sampleRateArg, timeoutArg, ...rest] = args;
-  if (!outputPath || !sampleRateArg || rest.length > 0) {
-    throw new Error('usage: benchmark:stt:reconnect <output.json> <sample-rate-hz> [timeout-ms]');
+  const [outputPath, benchmarkRunIdArg, corpusVersionArg, sampleRateArg, timeoutArg, ...rest] = args;
+  if (!outputPath || !benchmarkRunIdArg || !corpusVersionArg || !sampleRateArg || rest.length > 0) {
+    throw new Error(
+      'usage: benchmark:stt:reconnect <output.json> <benchmark-run-id> <corpus-version> <sample-rate-hz> [timeout-ms]',
+    );
   }
+  const benchmarkRunId = canonicalId(benchmarkRunIdArg, 'benchmark-run-id');
+  const corpusVersion = canonicalId(corpusVersionArg, 'corpus-version');
   const sampleRateHz = Number(sampleRateArg);
   if (!Number.isFinite(sampleRateHz) || sampleRateHz <= 0) {
     throw new RangeError('sample-rate-hz must be a positive finite number');
@@ -133,6 +148,8 @@ export function parseLiveReconnectCliArgs(args: readonly string[]): LiveReconnec
   }
   return {
     outputPath: resolve(outputPath),
+    benchmarkRunId,
+    corpusVersion,
     sampleRateHz,
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
   };
@@ -142,6 +159,8 @@ export async function runLiveReconnectCli(
   options: LiveReconnectCliOptions,
   environment: LiveReconnectEnvironment = process.env,
 ): Promise<void> {
+  const benchmarkRunId = canonicalId(options.benchmarkRunId, 'benchmarkRunId');
+  const corpusVersion = canonicalId(options.corpusVersion, 'corpusVersion');
   const configs = createLiveReconnectProviderConfigs(environment, options.sampleRateHz);
   const request: TranscriptionConnectRequest = {
     sessionId: 'live-reconnect-benchmark',
@@ -171,6 +190,8 @@ export async function runLiveReconnectCli(
 
   const result: LiveReconnectResult = {
     schemaVersion: 1,
+    benchmarkRunId,
+    corpusVersion,
     measuredAt: new Date().toISOString(),
     source: 'remote',
     sampleRateHz: options.sampleRateHz,
