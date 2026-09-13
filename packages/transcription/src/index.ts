@@ -10,6 +10,7 @@ export * from './benchmark-operational-evidence.js';
 export * from './benchmark-operational-runner.js';
 export * from './benchmark-operational-scenarios.js';
 export * from './benchmark-provider-disconnect.js';
+export * from './benchmark-provider-reconnect.js';
 export * from './benchmark-readiness.js';
 export * from './benchmark-runner.js';
 export * from './benchmark-suite.js';
