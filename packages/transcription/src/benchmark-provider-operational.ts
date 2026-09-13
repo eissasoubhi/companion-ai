@@ -52,14 +52,24 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function rebaseChunks(chunks: readonly AudioChunk[], anchorMs: number): readonly AudioChunk[] {
+export function rebaseTranscriptOperationalChunks(
+  chunks: readonly AudioChunk[],
+  anchorMs: number,
+  originMs?: number,
+): readonly AudioChunk[] {
+  const normalizedAnchorMs = requireFiniteNonNegative(anchorMs, 'anchorMs');
   if (chunks.length === 0) return chunks;
   const first = chunks[0];
   if (!first) return chunks;
-  const originMs = requireFiniteNonNegative(first.capturedAtMs, 'fixture.capturedAtMs');
+  const normalizedOriginMs = requireFiniteNonNegative(
+    originMs ?? first.capturedAtMs,
+    'fixture.capturedAtMs',
+  );
   return chunks.map((chunk) => ({
     ...chunk,
-    capturedAtMs: anchorMs + (requireFiniteNonNegative(chunk.capturedAtMs, 'fixture.capturedAtMs') - originMs),
+    capturedAtMs:
+      normalizedAnchorMs +
+      (requireFiniteNonNegative(chunk.capturedAtMs, 'fixture.capturedAtMs') - normalizedOriginMs),
   }));
 }
 
@@ -95,10 +105,13 @@ function composeProviderOperationalExecutor(options: ProviderOperationalComposit
           options.fixtures.endpointFinalization.audioEndedAtMs,
           'endpointFinalization.audioEndedAtMs',
         );
+        if (originalAudioEndedAtMs < originMs) {
+          throw new RangeError('endpointFinalization.audioEndedAtMs must not precede fixture audio');
+        }
         return {
           provider: options.createProvider(),
           request: options.request,
-          chunks: rebaseChunks(originalChunks, anchorMs),
+          chunks: rebaseTranscriptOperationalChunks(originalChunks, anchorMs, originMs),
           audioEndedAtMs: anchorMs + (originalAudioEndedAtMs - originMs),
         };
       },
@@ -115,18 +128,19 @@ function composeProviderOperationalExecutor(options: ProviderOperationalComposit
         ];
         const first = combined[0];
         const originMs = first ? requireFiniteNonNegative(first.capturedAtMs, 'fixture.capturedAtMs') : 0;
-        const rebase = (chunks: readonly AudioChunk[]): readonly AudioChunk[] =>
-          chunks.map((chunk) => ({
-            ...chunk,
-            capturedAtMs:
-              anchorMs +
-              (requireFiniteNonNegative(chunk.capturedAtMs, 'fixture.capturedAtMs') - originMs),
-          }));
         return {
           provider: options.createProvider(),
           request: options.request,
-          beforePauseChunks: rebase(options.fixtures.falseFinalization.beforePauseChunks),
-          afterPauseChunks: rebase(options.fixtures.falseFinalization.afterPauseChunks),
+          beforePauseChunks: rebaseTranscriptOperationalChunks(
+            options.fixtures.falseFinalization.beforePauseChunks,
+            anchorMs,
+            originMs,
+          ),
+          afterPauseChunks: rebaseTranscriptOperationalChunks(
+            options.fixtures.falseFinalization.afterPauseChunks,
+            anchorMs,
+            originMs,
+          ),
           waitDuringPause: () => wait(pauseMs),
         };
       },
