@@ -4,11 +4,13 @@ import {
   createAssemblyAIOperationalScenarioExecutor,
   createDeepgramOperationalScenarioExecutor,
   createOpenAIOperationalScenarioExecutor,
+  rebaseTranscriptOperationalChunks,
   type TranscriptOperationalAudioFixtures,
 } from './benchmark-provider-operational.js';
 import type { AssemblyAIProviderConfig } from './providers/assemblyai.js';
 import type { DeepgramProviderConfig } from './providers/deepgram.js';
 import type { OpenAILiveTranscriptionConfig } from './providers/openai.js';
+import type { AudioChunk } from './types.js';
 
 const request = {
   sessionId: 'benchmark-session',
@@ -49,6 +51,19 @@ const openAIConfig: OpenAILiveTranscriptionConfig = {
   },
 };
 
+function chunk(sequence: number, capturedAtMs: number): AudioChunk {
+  return {
+    sessionId: 'benchmark-session',
+    source: 'remote',
+    sequence,
+    capturedAtMs,
+    sampleRateHz: 16_000,
+    channels: 1,
+    encoding: 'pcm-s16le',
+    data: new Uint8Array([sequence + 1]),
+  };
+}
+
 describe('provider operational scenario executors', () => {
   it('composes all three shortlisted providers without opening a live socket', () => {
     expect(createDeepgramOperationalScenarioExecutor(deepgramConfig, request, fixtures).providerId).toBe(
@@ -78,5 +93,32 @@ describe('provider operational scenario executors', () => {
       timeoutMs: 5_000,
     });
     expect(executor.providerId).toBe('openai:gpt-live-transcribe');
+  });
+
+  it('rebases stale fixture timestamps while preserving relative timing and payloads', () => {
+    const input = [chunk(0, 100), chunk(1, 225), chunk(2, 450)];
+    const rebased = rebaseTranscriptOperationalChunks(input, 10_000);
+
+    expect(rebased.map((value) => value.capturedAtMs)).toEqual([10_000, 10_125, 10_350]);
+    expect(rebased.map((value) => value.sequence)).toEqual([0, 1, 2]);
+    expect(rebased.map((value) => [...value.data])).toEqual([[1], [2], [3]]);
+    expect(input.map((value) => value.capturedAtMs)).toEqual([100, 225, 450]);
+  });
+
+  it('uses one explicit origin when rebasing chunks on opposite sides of a natural pause', () => {
+    const before = rebaseTranscriptOperationalChunks([chunk(0, 1_000)], 50_000, 1_000);
+    const after = rebaseTranscriptOperationalChunks([chunk(1, 2_500)], 50_000, 1_000);
+
+    expect(before[0]?.capturedAtMs).toBe(50_000);
+    expect(after[0]?.capturedAtMs).toBe(51_500);
+  });
+
+  it('rejects invalid benchmark clock anchors before provider work', () => {
+    expect(() => rebaseTranscriptOperationalChunks([chunk(0, 100)], Number.NaN)).toThrow(
+      'anchorMs must be a non-negative finite number',
+    );
+    expect(() => rebaseTranscriptOperationalChunks([chunk(0, -1)], 1_000)).toThrow(
+      'fixture.capturedAtMs must be a non-negative finite number',
+    );
   });
 });
