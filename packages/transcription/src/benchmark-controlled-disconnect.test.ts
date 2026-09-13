@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createControlledDisconnectSocketFactory } from './benchmark-controlled-disconnect.js';
+import {
+  createControlledDisconnectSocketFactory,
+  type ControlledDisconnectOptions,
+} from './benchmark-controlled-disconnect.js';
 
 describe('createControlledDisconnectSocketFactory', () => {
   it('closes the active socket with a retryable benchmark close and reconnects through a fresh socket', () => {
@@ -35,7 +38,7 @@ describe('createControlledDisconnectSocketFactory', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('supports an explicit non-normal close code and canonical reason', () => {
+  it('supports an explicit adapter-retryable close code and canonical reason', () => {
     const close = vi.fn();
     const harness = createControlledDisconnectSocketFactory(() => ({ close }), {
       closeCode: 1013,
@@ -47,15 +50,13 @@ describe('createControlledDisconnectSocketFactory', () => {
     expect(close).toHaveBeenCalledWith(1013, 'benchmark-overload');
   });
 
-  it('rejects normal, invalid, or non-canonical disconnect configuration', () => {
+  it('rejects runtime-invalid or non-canonical disconnect configuration', () => {
     const createSocket = () => ({ close: () => undefined });
+    const invalidCloseCode = { closeCode: 1000 } as unknown as ControlledDisconnectOptions;
 
-    expect(() =>
-      createControlledDisconnectSocketFactory(createSocket, { closeCode: 1000 }),
-    ).toThrow('non-normal');
-    expect(() =>
-      createControlledDisconnectSocketFactory(createSocket, { closeCode: 999 }),
-    ).toThrow('non-normal');
+    expect(() => createControlledDisconnectSocketFactory(createSocket, invalidCloseCode)).toThrow(
+      'retryable by every STT adapter',
+    );
     expect(() =>
       createControlledDisconnectSocketFactory(createSocket, { reason: ' benchmark' }),
     ).toThrow('canonical');
