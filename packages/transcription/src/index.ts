@@ -5,6 +5,7 @@ export * from './benchmark-fixture-loader.js';
 export * from './benchmark-fixture-manifest.js';
 export * from './benchmark-metrics.js';
 export * from './benchmark-operational-evidence.js';
+export * from './benchmark-operational-runner.js';
 export * from './benchmark-operational-scenarios.js';
 export * from './benchmark-readiness.js';
 export * from './benchmark-runner.js';
