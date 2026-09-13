@@ -29,8 +29,12 @@ export interface TranscriptBenchmarkRunInput {
 }
 
 function assertValidRunInput(input: TranscriptBenchmarkRunInput): void {
-  if (input.providerId.trim().length === 0) {
+  const providerId = input.providerId.trim();
+  if (providerId.length === 0) {
     throw new Error('providerId must not be empty');
+  }
+  if (providerId !== input.providerId) {
+    throw new Error(`providerId must be canonical: ${input.providerId}`);
   }
 
   const corpusIds = new Set(input.corpus.map((sample) => sample.id));
@@ -44,6 +48,14 @@ function assertValidRunInput(input: TranscriptBenchmarkRunInput): void {
       throw new Error(`duplicate benchmark observation: ${observation.caseId}`);
     }
     observedIds.add(observation.caseId);
+
+    for (const latencySample of observation.latencySamples ?? []) {
+      if (latencySample.providerId !== providerId) {
+        throw new Error(
+          `benchmark latency provider mismatch for ${observation.caseId}: expected ${providerId}, received ${latencySample.providerId}`,
+        );
+      }
+    }
   }
 
   for (const sample of input.corpus) {
