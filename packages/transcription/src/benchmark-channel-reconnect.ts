@@ -1,5 +1,5 @@
-import { TranscriptionChannel, type TranscriptionClock, type TranscriptionSleep } from './channel.js';
 import type { TranscriptOperationalScenarioExecutor } from './benchmark-operational-runner.js';
+import { TranscriptionChannel, type TranscriptionClock, type TranscriptionSleep } from './channel.js';
 import type {
   ReconnectPolicy,
   TranscriptionConnectRequest,
@@ -41,21 +41,23 @@ function requirePositiveFinite(value: number, field: string): number {
 function waitForReady(
   subscribe: (listener: (event: TranscriptionPipelineEvent) => void) => () => void,
   timeoutMs: number,
-): Promise<number | null> {
+): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (value: number | null) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let unsubscribe = () => undefined;
+    const finish = (ready: boolean) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       unsubscribe();
-      resolve(value);
+      resolve(ready);
     };
-    const unsubscribe = subscribe((event) => {
-      if (event.type === 'provider-ready') finish(Date.now());
-      if (event.type === 'provider-closed') finish(null);
+    unsubscribe = subscribe((event) => {
+      if (event.type === 'provider-ready') finish(true);
+      if (event.type === 'provider-closed') finish(false);
     });
-    const timer = setTimeout(() => finish(null), timeoutMs);
+    if (!settled) timer = setTimeout(() => finish(false), timeoutMs);
   });
 }
 
@@ -99,8 +101,7 @@ export function createTranscriptChannelReconnectScenarioExecutor(
           reconnectPolicy,
           options.sleep,
         );
-        const initialReadyAtMs = await initialReadyPromise;
-        if (initialReadyAtMs === null) {
+        if (!(await initialReadyPromise)) {
           throw new Error('transcription provider did not become ready before reconnect scenario');
         }
 
@@ -111,9 +112,12 @@ export function createTranscriptChannelReconnectScenarioExecutor(
         }
 
         await harness.triggerDisconnect();
-        const recoveredAtWallClockMs = await recoveryReadyPromise;
-        const recoveredAtMs = recoveredAtWallClockMs === null ? null : clock();
-        if (recoveredAtMs !== null && (!Number.isFinite(recoveredAtMs) || recoveredAtMs < disconnectedAtMs)) {
+        const recovered = await recoveryReadyPromise;
+        const recoveredAtMs = recovered ? clock() : null;
+        if (
+          recoveredAtMs !== null &&
+          (!Number.isFinite(recoveredAtMs) || recoveredAtMs < disconnectedAtMs)
+        ) {
           throw new RangeError('recovery clock moved backwards');
         }
 
