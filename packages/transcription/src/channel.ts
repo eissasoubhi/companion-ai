@@ -13,6 +13,11 @@ import type {
 import { defaultReconnectPolicy } from './types.js';
 
 export type TranscriptionClock = () => number;
+export type TranscriptionSleep = (delayMs: number) => Promise<void>;
+
+const defaultSleep: TranscriptionSleep = async (delayMs) => {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+};
 
 export function reconnectDelayMs(
   attempt: number,
@@ -39,12 +44,22 @@ export class TranscriptionChannel {
   readonly sessionId: string;
   readonly source: TranscriptionConnectRequest['source'];
 
+  #provider: TranscriptionProvider;
+  #request: TranscriptionConnectRequest;
   #connection: TranscriptionConnection;
   #emit: TranscriptionPipelineEventHandler;
   #clock: TranscriptionClock;
+  #sleep: TranscriptionSleep;
+  #reconnectPolicy: ReconnectPolicy;
   #lastSequence = -1;
   #closed = false;
+  #closing = false;
   #writeInFlight = false;
+  #generation = 0;
+  #completedReconnectAttempts = 0;
+  #reconnectRequested = false;
+  #reconnectPromise: Promise<void> | null = null;
+  #closePromise: Promise<void> | null = null;
 
   private constructor(
     provider: TranscriptionProvider,
@@ -52,13 +67,19 @@ export class TranscriptionChannel {
     connection: TranscriptionConnection,
     emit: TranscriptionPipelineEventHandler,
     clock: TranscriptionClock,
+    reconnectPolicy: ReconnectPolicy,
+    sleep: TranscriptionSleep,
   ) {
     this.providerId = provider.id;
     this.sessionId = request.sessionId;
     this.source = request.source;
+    this.#provider = provider;
+    this.#request = request;
     this.#connection = connection;
     this.#emit = emit;
     this.#clock = clock;
+    this.#reconnectPolicy = reconnectPolicy;
+    this.#sleep = sleep;
   }
 
   static async open(
@@ -66,6 +87,8 @@ export class TranscriptionChannel {
     request: TranscriptionConnectRequest,
     emit: TranscriptionPipelineEventHandler,
     clock: TranscriptionClock = () => Date.now(),
+    reconnectPolicy: ReconnectPolicy = defaultReconnectPolicy,
+    sleep: TranscriptionSleep = defaultSleep,
   ): Promise<TranscriptionChannel> {
     const pendingEvents: TranscriptionProviderEvent[] = [];
     let forwardEvent: (event: TranscriptionProviderEvent) => void = (event) => {
@@ -79,17 +102,25 @@ export class TranscriptionChannel {
       connection,
       emit,
       clock,
+      reconnectPolicy,
+      sleep,
     );
 
-    forwardEvent = (event) => channel.#handleProviderEvent(event);
-    for (const event of pendingEvents) channel.#handleProviderEvent(event);
+    forwardEvent = (event) => channel.#handleProviderEvent(event, 0);
+    for (const event of pendingEvents) channel.#handleProviderEvent(event, 0);
 
     return channel;
   }
 
   async writeAudio(chunk: AudioChunk): Promise<void> {
-    if (this.#closed) {
+    if (this.#closed || this.#closing) {
       throw new Error('Cannot write audio to a closed transcription channel.');
+    }
+
+    if (this.#reconnectPromise !== null) {
+      throw new Error(
+        'Cannot write audio while the transcription provider is reconnecting. Retry after provider-ready.',
+      );
     }
 
     if (this.#writeInFlight) {
@@ -116,9 +147,22 @@ export class TranscriptionChannel {
       throw new RangeError('Audio chunk format is invalid.');
     }
 
+    const generation = this.#generation;
+    const connection = this.#connection;
     this.#writeInFlight = true;
     try {
-      await this.#connection.write(chunk);
+      await connection.write(chunk);
+      if (
+        this.#closed ||
+        this.#closing ||
+        this.#reconnectPromise !== null ||
+        generation !== this.#generation ||
+        connection !== this.#connection
+      ) {
+        throw new Error(
+          'Transcription connection changed before the audio chunk was safely accepted. Retry the chunk.',
+        );
+      }
       this.#lastSequence = chunk.sequence;
     } finally {
       this.#writeInFlight = false;
@@ -126,14 +170,136 @@ export class TranscriptionChannel {
   }
 
   async close(): Promise<void> {
+    if (this.#closePromise) return this.#closePromise;
     if (this.#closed) return;
-    this.#closed = true;
-    await this.#connection.close();
+
+    const closeDuringReconnect = this.#reconnectPromise !== null;
+    if (closeDuringReconnect) {
+      this.#closed = true;
+      this.#reconnectRequested = false;
+      this.#generation += 1;
+    } else {
+      this.#closing = true;
+    }
+
+    const connection = this.#connection;
+    const closePromise = (async () => {
+      try {
+        await connection.close();
+      } finally {
+        if (!closeDuringReconnect) {
+          this.#closed = true;
+          this.#closing = false;
+          this.#generation += 1;
+        }
+      }
+    })();
+    this.#closePromise = closePromise;
+
+    try {
+      await closePromise;
+    } finally {
+      if (this.#closePromise === closePromise) this.#closePromise = null;
+    }
   }
 
-  #handleProviderEvent(event: TranscriptionProviderEvent): void {
+  #beginReconnect(): void {
+    if (this.#closed || this.#closing) return;
+    if (this.#reconnectPromise !== null) {
+      this.#reconnectRequested = true;
+      return;
+    }
+
+    const reconnectPromise = this.#reconnect();
+    this.#reconnectPromise = reconnectPromise;
+    const clear = () => {
+      if (this.#reconnectPromise !== reconnectPromise) return;
+      this.#reconnectPromise = null;
+      if (this.#reconnectRequested && !this.#closed && !this.#closing) {
+        this.#reconnectRequested = false;
+        this.#beginReconnect();
+      }
+    };
+    void reconnectPromise.then(clear, clear);
+  }
+
+  async #reconnect(): Promise<void> {
+    const generation = this.#generation + 1;
+    this.#generation = generation;
+
+    try {
+      await this.#connection.close();
+    } catch {
+      // The connection already failed. Reconnect is still worth attempting.
+    }
+
+    while (
+      shouldReconnect(true, this.#completedReconnectAttempts, this.#reconnectPolicy)
+    ) {
+      const attempt = this.#completedReconnectAttempts + 1;
+      await this.#sleep(reconnectDelayMs(attempt, this.#reconnectPolicy));
+      if (this.#closed || this.#closing || generation !== this.#generation) return;
+
+      const pendingEvents: TranscriptionProviderEvent[] = [];
+      let forwardEvent: (event: TranscriptionProviderEvent) => void = (event) => {
+        pendingEvents.push(event);
+      };
+
+      try {
+        const connection = await this.#provider.connect(
+          this.#request,
+          (event) => forwardEvent(event),
+        );
+        this.#completedReconnectAttempts = attempt;
+        if (this.#closed || this.#closing || generation !== this.#generation) {
+          await connection.close();
+          return;
+        }
+
+        this.#connection = connection;
+        forwardEvent = (event) => this.#handleProviderEvent(event, generation);
+        for (const event of pendingEvents) {
+          this.#handleProviderEvent(event, generation);
+        }
+        return;
+      } catch (error) {
+        this.#completedReconnectAttempts = attempt;
+        const retryable = shouldReconnect(
+          true,
+          this.#completedReconnectAttempts,
+          this.#reconnectPolicy,
+        );
+        this.#emit({
+          type: 'provider-error',
+          providerId: this.providerId,
+          sessionId: this.sessionId,
+          source: this.source,
+          code: 'reconnect-connect-failed',
+          message: error instanceof Error ? error.message : 'Provider reconnect failed.',
+          retryable,
+        });
+      }
+    }
+
+    if (!this.#closed && !this.#closing && generation === this.#generation) {
+      this.#closed = true;
+      this.#reconnectRequested = false;
+      this.#emit({
+        type: 'provider-closed',
+        providerId: this.providerId,
+        sessionId: this.sessionId,
+        source: this.source,
+        reason: 'reconnect-attempts-exhausted',
+      });
+    }
+  }
+
+  #handleProviderEvent(event: TranscriptionProviderEvent, generation: number): void {
+    if (this.#closed || generation !== this.#generation) return;
+
     switch (event.type) {
       case 'ready':
+        this.#completedReconnectAttempts = 0;
         this.#emit({
           type: 'provider-ready',
           providerId: this.providerId,
@@ -152,6 +318,7 @@ export class TranscriptionChannel {
           message: event.message,
           retryable: event.retryable,
         });
+        if (event.retryable) this.#beginReconnect();
         return;
 
       case 'closed':

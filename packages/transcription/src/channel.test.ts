@@ -136,6 +136,176 @@ describe('TranscriptionChannel', () => {
     ).rejects.toThrow('does not belong');
     expect(write).not.toHaveBeenCalled();
   });
+
+  it('forwards a final transcript emitted while the provider connection is closing', async () => {
+    const events: TranscriptionPipelineEvent[] = [];
+    let providerEmit: TranscriptionProviderEventHandler | undefined;
+    const provider: TranscriptionProvider = {
+      id: 'fake-stt',
+      async connect(_request, onEvent) {
+        providerEmit = onEvent;
+        return {
+          write: async () => undefined,
+          close: async () => {
+            providerEmit?.({
+              type: 'transcript',
+              segmentId: 'final-on-close',
+              text: 'Final answer',
+              isFinal: true,
+              startedAtMs: 1_000,
+              endedAtMs: 1_100,
+            });
+          },
+        };
+      },
+    };
+
+    const channel = await TranscriptionChannel.open(
+      provider,
+      { sessionId: 'session-1', source: 'remote', partialResults: true },
+      (event) => events.push(event),
+      () => 1_150,
+    );
+
+    await channel.close();
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'transcript',
+        segment: expect.objectContaining({
+          id: 'session-1:remote:final-on-close',
+          source: 'remote',
+          text: 'Final answer',
+          isFinal: true,
+        }),
+      }),
+    );
+    await expect(channel.writeAudio(audioChunk(0))).rejects.toThrow('closed');
+  });
+
+  it('reconnects retryable failures without buffering audio or accepting stale events', async () => {
+    const events: TranscriptionPipelineEvent[] = [];
+    const emitters: TranscriptionProviderEventHandler[] = [];
+    const writes = [vi.fn(async () => undefined), vi.fn(async () => undefined)];
+    const closes = [vi.fn(async () => undefined), vi.fn(async () => undefined)];
+    let connectCount = 0;
+    let resumeSleep: (() => void) | undefined;
+    const sleep = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resumeSleep = resolve;
+        }),
+    );
+    const provider: TranscriptionProvider = {
+      id: 'fake-stt',
+      async connect(request, onEvent) {
+        expect(request).toEqual({
+          sessionId: 'session-1',
+          source: 'remote',
+          partialResults: true,
+        });
+        const index = connectCount;
+        connectCount += 1;
+        emitters.push(onEvent);
+        return { write: writes[index]!, close: closes[index]! };
+      },
+    };
+
+    const channel = await TranscriptionChannel.open(
+      provider,
+      { sessionId: 'session-1', source: 'remote', partialResults: true },
+      (event) => events.push(event),
+      () => 2_000,
+      { maxAttempts: 2, baseDelayMs: 10, maxDelayMs: 20 },
+      sleep,
+    );
+
+    emitters[0]?.({
+      type: 'error',
+      code: 'socket-reset',
+      message: 'socket reset',
+      retryable: true,
+    });
+
+    await expect(channel.writeAudio(audioChunk(0))).rejects.toThrow('reconnecting');
+    await vi.waitFor(() => expect(sleep).toHaveBeenCalledWith(10));
+    expect(closes[0]).toHaveBeenCalledTimes(1);
+
+    resumeSleep?.();
+    await vi.waitFor(() => expect(connectCount).toBe(2));
+    emitters[1]?.({ type: 'ready' });
+    await vi.waitFor(async () => {
+      await channel.writeAudio(audioChunk(0));
+      expect(writes[1]).toHaveBeenCalledTimes(1);
+    });
+
+    const eventCount = events.length;
+    emitters[0]?.({
+      type: 'transcript',
+      segmentId: 'stale',
+      text: 'stale transcript',
+      isFinal: true,
+      startedAtMs: 1_000,
+      endedAtMs: 1_100,
+    });
+    expect(events).toHaveLength(eventCount);
+
+    await channel.close();
+    expect(closes[1]).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes fail-closed after bounded reconnect attempts are exhausted', async () => {
+    const events: TranscriptionPipelineEvent[] = [];
+    let initialEmit: TranscriptionProviderEventHandler | undefined;
+    let connectCount = 0;
+    const provider: TranscriptionProvider = {
+      id: 'fake-stt',
+      async connect(_request, onEvent) {
+        connectCount += 1;
+        if (connectCount === 1) {
+          initialEmit = onEvent;
+          return {
+            write: async () => undefined,
+            close: async () => undefined,
+          };
+        }
+        throw new Error(`connect failure ${connectCount}`);
+      },
+    };
+
+    const channel = await TranscriptionChannel.open(
+      provider,
+      { sessionId: 'session-1', source: 'remote', partialResults: true },
+      (event) => events.push(event),
+      () => 2_000,
+      { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 2 },
+      async () => undefined,
+    );
+
+    initialEmit?.({
+      type: 'error',
+      code: 'temporary',
+      message: 'temporary failure',
+      retryable: true,
+    });
+
+    await vi.waitFor(() => {
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'provider-closed',
+          reason: 'reconnect-attempts-exhausted',
+        }),
+      );
+    });
+    expect(connectCount).toBe(3);
+    expect(
+      events.filter(
+        (event) =>
+          event.type === 'provider-error' && event.code === 'reconnect-connect-failed',
+      ),
+    ).toHaveLength(2);
+    await expect(channel.writeAudio(audioChunk(0))).rejects.toThrow('closed');
+  });
 });
 
 describe('reconnect policy', () => {
