@@ -97,22 +97,26 @@ function composeProviderOperationalExecutor(options: ProviderOperationalComposit
       clock,
       providerId: options.providerId,
       createScenario: () => {
-        const anchorMs = requireFiniteNonNegative(clock(), 'clock');
+        const audioEndedAtMs = requireFiniteNonNegative(clock(), 'clock');
         const originalChunks = options.fixtures.endpointFinalization.chunks;
-        const first = originalChunks[0];
-        const originMs = first ? requireFiniteNonNegative(first.capturedAtMs, 'fixture.capturedAtMs') : 0;
         const originalAudioEndedAtMs = requireFiniteNonNegative(
           options.fixtures.endpointFinalization.audioEndedAtMs,
           'endpointFinalization.audioEndedAtMs',
         );
-        if (originalAudioEndedAtMs < originMs) {
-          throw new RangeError('endpointFinalization.audioEndedAtMs must not precede fixture audio');
+        for (const chunk of originalChunks) {
+          if (requireFiniteNonNegative(chunk.capturedAtMs, 'fixture.capturedAtMs') > originalAudioEndedAtMs) {
+            throw new RangeError('endpointFinalization.audioEndedAtMs must not precede fixture audio');
+          }
         }
         return {
           provider: options.createProvider(),
           request: options.request,
-          chunks: rebaseTranscriptOperationalChunks(originalChunks, anchorMs, originMs),
-          audioEndedAtMs: anchorMs + (originalAudioEndedAtMs - originMs),
+          chunks: rebaseTranscriptOperationalChunks(
+            originalChunks,
+            audioEndedAtMs,
+            originalAudioEndedAtMs,
+          ),
+          audioEndedAtMs,
         };
       },
     }),
