@@ -164,6 +164,16 @@ describe('executeTranscriptBenchmarkBatch', () => {
     expect(second.requests).toHaveLength(0);
   });
 
+  it('rejects provider ids with surrounding whitespace before provider I/O', async () => {
+    const lifecycle = { active: 0, maxActive: 0 };
+    const provider = new DeterministicProvider(' provider:spaced ', lifecycle);
+
+    await expect(executeTranscriptBenchmarkBatch([provider], corpus, fixtureSet)).rejects.toThrow(
+      'provider id must not have surrounding whitespace',
+    );
+    expect(provider.requests).toHaveLength(0);
+  });
+
   it('serializes a deterministic JSON artifact without audio bytes or credentials', async () => {
     const lifecycle = { active: 0, maxActive: 0 };
     const provider = new DeterministicProvider('provider:artifact', lifecycle);
