@@ -119,6 +119,37 @@ describe('assessTranscriptBenchmarkReadiness', () => {
     ]));
   });
 
+  it('rejects missing accuracy evidence', () => {
+    const invalid = candidate();
+    const result = assessTranscriptBenchmarkReadiness(
+      [
+        {
+          ...invalid,
+          report: {
+            ...invalid.report,
+            sampleCount: 0,
+            accuracy: {
+              ...invalid.report.accuracy,
+              sampleCount: 0,
+              referenceWordCount: 0,
+              keyTermCount: 0,
+              keyTermMatches: 0,
+              keyTermAccuracy: null,
+            },
+          },
+        },
+      ],
+      ['provider-a'],
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      'provider-a: missing accuracy samples',
+      'provider-a: missing reference transcript words',
+      'provider-a: missing technical-term accuracy samples',
+    ]));
+  });
+
   it('rejects duplicate candidates and out-of-range measured rates', () => {
     const invalid = candidate('provider-a');
     const result = assessTranscriptBenchmarkReadiness(
@@ -141,6 +172,30 @@ describe('assessTranscriptBenchmarkReadiness', () => {
       'duplicate benchmark candidate: provider-a',
       'provider-a: missing reconnect success rate',
       'provider-a: missing false-finalization rate',
+    ]));
+  });
+
+  it('rejects duplicate or non-canonical required provider ids', () => {
+    const result = assessTranscriptBenchmarkReadiness(
+      [candidate('provider-a')],
+      ['provider-a', 'provider-a', ' provider-a '],
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      'duplicate required providerId: provider-a',
+      'required providerId must be canonical:  provider-a ',
+    ]));
+  });
+
+  it('rejects non-canonical candidate ids instead of silently normalizing them', () => {
+    const invalid = candidate(' provider-a ');
+    const result = assessTranscriptBenchmarkReadiness([invalid], ['provider-a']);
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      'candidate providerId must be canonical:  provider-a ',
+      'missing benchmark candidate: provider-a',
     ]));
   });
 });
