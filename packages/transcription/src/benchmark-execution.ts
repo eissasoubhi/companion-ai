@@ -20,10 +20,13 @@ export interface TranscriptBenchmarkAudioFixture {
   readonly chunks: readonly TranscriptBenchmarkFixtureChunk[];
 }
 
+export type TranscriptBenchmarkSleep = (durationMs: number) => Promise<void>;
+
 export interface TranscriptBenchmarkExecutionOptions {
   readonly sessionIdPrefix?: string | undefined;
   readonly finalTimeoutMs?: number | undefined;
   readonly clock?: TranscriptionClock | undefined;
+  readonly sleep?: TranscriptBenchmarkSleep | undefined;
 }
 
 export interface TranscriptBenchmarkExecutionResult {
@@ -58,6 +61,7 @@ function assertFixtureSet(
     }
 
     let previousSequence = -1;
+    let previousCapturedAtMs = Number.NEGATIVE_INFINITY;
     const firstChunk = fixture.chunks[0];
     if (!firstChunk) {
       throw new Error(`benchmark fixture has no audio chunks: ${fixture.caseId}`);
@@ -79,6 +83,11 @@ function assertFixtureSet(
       ) {
         throw new RangeError(`benchmark fixture audio chunk is invalid: ${fixture.caseId}`);
       }
+      if (chunk.capturedAtMs < previousCapturedAtMs) {
+        throw new RangeError(
+          `benchmark fixture capturedAtMs must not move backwards: ${fixture.caseId}`,
+        );
+      }
       if (
         chunk.encoding !== firstChunk.encoding ||
         chunk.sampleRateHz !== firstChunk.sampleRateHz ||
@@ -87,6 +96,7 @@ function assertFixtureSet(
         throw new Error(`benchmark fixture audio format changes mid-stream: ${fixture.caseId}`);
       }
       previousSequence = chunk.sequence;
+      previousCapturedAtMs = chunk.capturedAtMs;
     }
   }
 
@@ -105,12 +115,17 @@ function normalizedTimeoutMs(value: number | undefined): number {
   return timeoutMs;
 }
 
+function defaultSleep(durationMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, durationMs));
+}
+
 async function executeFixture(
   provider: TranscriptionProvider,
   fixture: TranscriptBenchmarkAudioFixture,
   sessionId: string,
   finalTimeoutMs: number,
   clock: TranscriptionClock,
+  sleep: TranscriptBenchmarkSleep,
 ): Promise<TranscriptBenchmarkObservation> {
   const finalTexts: string[] = [];
   const latencySamples: TranscriptLatencySample[] = [];
@@ -173,9 +188,20 @@ async function executeFixture(
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let closeStarted = false;
   try {
+    const firstChunk = fixture.chunks[0];
+    if (!firstChunk) throw new Error(`benchmark fixture has no audio chunks: ${fixture.caseId}`);
+
+    const fixtureOriginMs = firstChunk.capturedAtMs;
+    const playbackOriginMs = clock();
+
     for (const chunk of fixture.chunks) {
+      const targetCapturedAtMs = playbackOriginMs + (chunk.capturedAtMs - fixtureOriginMs);
+      const waitMs = targetCapturedAtMs - clock();
+      if (waitMs > 0) await sleep(waitMs);
+
       await channel.writeAudio({
         ...chunk,
+        capturedAtMs: targetCapturedAtMs,
         sessionId,
         source: fixture.source,
       });
@@ -229,6 +255,7 @@ export async function executeTranscriptBenchmarkRun(
   const finalTimeoutMs = normalizedTimeoutMs(options.finalTimeoutMs);
   const sessionIdPrefix = options.sessionIdPrefix?.trim() || 'benchmark';
   const clock = options.clock ?? (() => Date.now());
+  const sleep = options.sleep ?? defaultSleep;
   const fixturesById = new Map(fixtures.map((fixture) => [fixture.caseId, fixture]));
   const observations: TranscriptBenchmarkObservation[] = [];
 
@@ -244,6 +271,7 @@ export async function executeTranscriptBenchmarkRun(
         `${sessionIdPrefix}:${provider.id}:${sample.id}`,
         finalTimeoutMs,
         clock,
+        sleep,
       ),
     );
   }
