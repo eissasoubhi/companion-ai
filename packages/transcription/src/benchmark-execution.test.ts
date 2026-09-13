@@ -121,6 +121,36 @@ describe('executeTranscriptBenchmarkRun', () => {
     ]);
   });
 
+  it('paces fixture chunks by capture timestamps and rebases them to the live clock', async () => {
+    const provider = new FinalOnCloseProvider();
+    let now = 1_000;
+    const sleeps: number[] = [];
+    const pacedFixture: TranscriptBenchmarkAudioFixture = {
+      caseId: 'local-case',
+      source: 'local',
+      chunks: [
+        { ...chunk(0, 'Explain '), capturedAtMs: 100 },
+        { ...chunk(1, 'Sym'), capturedAtMs: 150 },
+        { ...chunk(2, 'fony'), capturedAtMs: 225 },
+      ],
+    };
+
+    await executeTranscriptBenchmarkRun(provider, [corpus[0]], [pacedFixture], {
+      clock: () => now,
+      sleep: async (durationMs) => {
+        sleeps.push(durationMs);
+        now += durationMs;
+      },
+    });
+
+    expect(sleeps).toEqual([50, 75]);
+    expect(provider.writes.map((audioChunk) => audioChunk.capturedAtMs)).toEqual([
+      1_000,
+      1_050,
+      1_125,
+    ]);
+  });
+
   it('fails closed when the provider errors before producing a final transcript', async () => {
     const provider: TranscriptionProvider = {
       id: 'fake:error',
@@ -226,6 +256,19 @@ describe('executeTranscriptBenchmarkRun', () => {
         },
       ]),
     ).rejects.toThrow('audio format changes mid-stream');
+    expect(connects).toBe(0);
+
+    await expect(
+      executeTranscriptBenchmarkRun(provider, [corpus[0]], [
+        {
+          ...fixtures[0],
+          chunks: [
+            { ...chunk(0, 'first'), capturedAtMs: 200 },
+            { ...chunk(1, 'second'), capturedAtMs: 100 },
+          ],
+        },
+      ]),
+    ).rejects.toThrow('capturedAtMs must not move backwards');
     expect(connects).toBe(0);
   });
 
