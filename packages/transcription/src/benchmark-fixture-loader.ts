@@ -22,6 +22,7 @@ export interface LoadedTranscriptBenchmarkFixtureSet {
 }
 
 const DEFAULT_CHUNK_DURATION_MS = 100;
+export const MAX_TRANSCRIPT_BENCHMARK_CHUNK_BYTES = 64 * 1024;
 
 function normalizedChunkDurationMs(value: number | undefined): number {
   const durationMs = value ?? DEFAULT_CHUNK_DURATION_MS;
@@ -73,11 +74,16 @@ function chunkPcmFixture(
   chunkDurationMs: number,
 ): readonly TranscriptBenchmarkFixtureChunk[] {
   const frameBytes = bytesPerSample(entry) * entry.channels;
+  if (frameBytes > MAX_TRANSCRIPT_BENCHMARK_CHUNK_BYTES) {
+    throw new Error(`benchmark fixture audio frame exceeds chunk limit: ${entry.caseId}`);
+  }
   if (bytes.byteLength === 0 || bytes.byteLength % frameBytes !== 0) {
     throw new Error(`benchmark fixture PCM byte length is invalid: ${entry.caseId}`);
   }
 
-  const framesPerChunk = Math.max(1, Math.floor((entry.sampleRateHz * chunkDurationMs) / 1_000));
+  const durationFrames = Math.max(1, Math.floor((entry.sampleRateHz * chunkDurationMs) / 1_000));
+  const byteBoundFrames = Math.max(1, Math.floor(MAX_TRANSCRIPT_BENCHMARK_CHUNK_BYTES / frameBytes));
+  const framesPerChunk = Math.min(durationFrames, byteBoundFrames);
   const bytesPerChunk = framesPerChunk * frameBytes;
   const chunks: TranscriptBenchmarkFixtureChunk[] = [];
 
