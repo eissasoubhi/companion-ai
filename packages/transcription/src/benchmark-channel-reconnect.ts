@@ -45,7 +45,7 @@ function waitForReady(
   return new Promise((resolve) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let unsubscribe = () => undefined;
+    let unsubscribe: () => void = () => undefined;
     const finish = (ready: boolean) => {
       if (settled) return;
       settled = true;
@@ -82,9 +82,11 @@ export function createTranscriptChannelReconnectScenarioExecutor(
       }
 
       const listeners = new Set<(event: TranscriptionPipelineEvent) => void>();
-      const subscribe = (listener: (event: TranscriptionPipelineEvent) => void) => {
+      const subscribe = (listener: (event: TranscriptionPipelineEvent) => void): (() => void) => {
         listeners.add(listener);
-        return () => listeners.delete(listener);
+        return () => {
+          listeners.delete(listener);
+        };
       };
       const emit = (event: TranscriptionPipelineEvent) => {
         for (const listener of [...listeners]) listener(event);
