@@ -55,6 +55,8 @@ export class TranscriptionChannel {
   #closed = false;
   #writeInFlight = false;
   #generation = 0;
+  #completedReconnectAttempts = 0;
+  #reconnectRequested = false;
   #reconnectPromise: Promise<void> | null = null;
 
   private constructor(
@@ -143,9 +145,21 @@ export class TranscriptionChannel {
       throw new RangeError('Audio chunk format is invalid.');
     }
 
+    const generation = this.#generation;
+    const connection = this.#connection;
     this.#writeInFlight = true;
     try {
-      await this.#connection.write(chunk);
+      await connection.write(chunk);
+      if (
+        this.#closed ||
+        this.#reconnectPromise !== null ||
+        generation !== this.#generation ||
+        connection !== this.#connection
+      ) {
+        throw new Error(
+          'Transcription connection changed before the audio chunk was safely accepted. Retry the chunk.',
+        );
+      }
       this.#lastSequence = chunk.sequence;
     } finally {
       this.#writeInFlight = false;
@@ -155,18 +169,26 @@ export class TranscriptionChannel {
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
+    this.#reconnectRequested = false;
     this.#generation += 1;
     await this.#connection.close();
   }
 
   #beginReconnect(): void {
-    if (this.#closed || this.#reconnectPromise !== null) return;
+    if (this.#closed) return;
+    if (this.#reconnectPromise !== null) {
+      this.#reconnectRequested = true;
+      return;
+    }
 
     const reconnectPromise = this.#reconnect();
     this.#reconnectPromise = reconnectPromise;
     const clear = () => {
-      if (this.#reconnectPromise === reconnectPromise) {
-        this.#reconnectPromise = null;
+      if (this.#reconnectPromise !== reconnectPromise) return;
+      this.#reconnectPromise = null;
+      if (this.#reconnectRequested && !this.#closed) {
+        this.#reconnectRequested = false;
+        this.#beginReconnect();
       }
     };
     void reconnectPromise.then(clear, clear);
@@ -182,9 +204,10 @@ export class TranscriptionChannel {
       // The connection already failed. Reconnect is still worth attempting.
     }
 
-    let completedAttempts = 0;
-    while (shouldReconnect(true, completedAttempts, this.#reconnectPolicy)) {
-      const attempt = completedAttempts + 1;
+    while (
+      shouldReconnect(true, this.#completedReconnectAttempts, this.#reconnectPolicy)
+    ) {
+      const attempt = this.#completedReconnectAttempts + 1;
       await this.#sleep(reconnectDelayMs(attempt, this.#reconnectPolicy));
       if (this.#closed || generation !== this.#generation) return;
 
@@ -198,6 +221,7 @@ export class TranscriptionChannel {
           this.#request,
           (event) => forwardEvent(event),
         );
+        this.#completedReconnectAttempts = attempt;
         if (this.#closed || generation !== this.#generation) {
           await connection.close();
           return;
@@ -210,10 +234,10 @@ export class TranscriptionChannel {
         }
         return;
       } catch (error) {
-        completedAttempts = attempt;
+        this.#completedReconnectAttempts = attempt;
         const retryable = shouldReconnect(
           true,
-          completedAttempts,
+          this.#completedReconnectAttempts,
           this.#reconnectPolicy,
         );
         this.#emit({
@@ -230,6 +254,7 @@ export class TranscriptionChannel {
 
     if (!this.#closed && generation === this.#generation) {
       this.#closed = true;
+      this.#reconnectRequested = false;
       this.#emit({
         type: 'provider-closed',
         providerId: this.providerId,
@@ -245,6 +270,7 @@ export class TranscriptionChannel {
 
     switch (event.type) {
       case 'ready':
+        this.#completedReconnectAttempts = 0;
         this.#emit({
           type: 'provider-ready',
           providerId: this.providerId,
