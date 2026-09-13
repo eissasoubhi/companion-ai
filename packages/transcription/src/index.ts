@@ -1,5 +1,6 @@
 export * from './benchmark-corpus.js';
 export * from './benchmark-execution.js';
+export * from './benchmark-fixture-manifest.js';
 export * from './benchmark-metrics.js';
 export * from './benchmark-readiness.js';
 export * from './benchmark-runner.js';
