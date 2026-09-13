@@ -1,6 +1,7 @@
 import type { TranscriptBenchmarkRunReport } from './benchmark-runner.js';
 
 export interface TranscriptBenchmarkOperationalEvidence {
+  readonly providerId: string;
   readonly endpointFinalizationP95Ms: number | null;
   readonly reconnectSuccessRate: number | null;
   readonly recoveryP95Ms: number | null;
@@ -35,6 +36,17 @@ function candidateReasons(candidate: TranscriptBenchmarkCandidate): string[] {
   const providerId = candidate.report.providerId;
   const reasons: string[] = [];
   const accuracy = candidate.report.accuracy;
+  const operationalProviderId = candidate.operational.providerId.trim();
+
+  if (operationalProviderId.length === 0) {
+    reasons.push(`${providerId}: operational evidence providerId must not be empty`);
+  } else if (operationalProviderId !== candidate.operational.providerId) {
+    reasons.push(`${providerId}: operational evidence providerId must be canonical: ${candidate.operational.providerId}`);
+  } else if (operationalProviderId !== providerId) {
+    reasons.push(
+      `${providerId}: operational evidence provider mismatch: received ${candidate.operational.providerId}`,
+    );
+  }
 
   if (candidate.report.sampleCount === 0 || accuracy.sampleCount === 0) {
     reasons.push(`${providerId}: missing accuracy samples`);
