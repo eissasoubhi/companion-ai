@@ -74,6 +74,15 @@ describe('assessTranscriptBenchmarkReadiness', () => {
     expect(result).toEqual({ ready: true, reasons: [] });
   });
 
+  it('fails closed when no providers are required', () => {
+    const result = assessTranscriptBenchmarkReadiness([], []);
+
+    expect(result).toEqual({
+      ready: false,
+      reasons: ['at least one required providerId is required'],
+    });
+  });
+
   it('fails closed when a required provider is missing', () => {
     const result = assessTranscriptBenchmarkReadiness(
       [candidate('provider-a')],
@@ -135,6 +144,7 @@ describe('assessTranscriptBenchmarkReadiness', () => {
               keyTermCount: 0,
               keyTermMatches: 0,
               keyTermAccuracy: null,
+              samples: [],
             },
           },
         },
@@ -147,6 +157,33 @@ describe('assessTranscriptBenchmarkReadiness', () => {
       'provider-a: missing accuracy samples',
       'provider-a: missing reference transcript words',
       'provider-a: missing technical-term accuracy samples',
+    ]));
+  });
+
+  it('rejects internally inconsistent accuracy evidence', () => {
+    const invalid = candidate();
+    const result = assessTranscriptBenchmarkReadiness(
+      [
+        {
+          ...invalid,
+          report: {
+            ...invalid.report,
+            sampleCount: 2,
+            accuracy: {
+              ...invalid.report.accuracy,
+              keyTermCount: 1,
+              keyTermMatches: 2,
+            },
+          },
+        },
+      ],
+      ['provider-a'],
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      'provider-a: inconsistent accuracy sample counts',
+      'provider-a: invalid technical-term counts',
     ]));
   });
 
