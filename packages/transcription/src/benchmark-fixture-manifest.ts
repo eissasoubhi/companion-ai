@@ -1,4 +1,4 @@
-import type { AudioChunk } from './types.js';
+import type { AudioChunk, AudioEncoding } from './types.js';
 
 export const TRANSCRIPT_BENCHMARK_FIXTURE_MANIFEST_VERSION = 1 as const;
 
@@ -20,6 +20,8 @@ export interface TranscriptBenchmarkFixtureManifest {
 }
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const WINDOWS_DRIVE_PATH_PATTERN = /^[a-zA-Z]:\//;
+const AUDIO_ENCODINGS = new Set<AudioEncoding>(['pcm-s16le', 'pcm-f32le', 'opus']);
 
 function assertIdentifier(value: string, label: string): void {
   if (value.trim().length === 0) {
@@ -32,7 +34,8 @@ function assertRelativeFixturePath(path: string, caseId: string): void {
   if (
     normalized.length === 0 ||
     normalized.startsWith('/') ||
-    normalized.split('/').some((segment) => segment === '..' || segment.length === 0)
+    WINDOWS_DRIVE_PATH_PATTERN.test(normalized) ||
+    normalized.split('/').some((segment) => segment === '..' || segment === '.' || segment.length === 0)
   ) {
     throw new Error(`benchmark fixture path must be a safe relative path: ${caseId}`);
   }
@@ -78,6 +81,9 @@ export function assertTranscriptBenchmarkFixtureManifest(
       throw new Error(`benchmark fixture sha256 is invalid: ${entry.caseId}`);
     }
 
+    if (!AUDIO_ENCODINGS.has(entry.encoding)) {
+      throw new Error(`benchmark fixture encoding is invalid: ${entry.caseId}`);
+    }
     if (!Number.isInteger(entry.sampleRateHz) || entry.sampleRateHz <= 0) {
       throw new RangeError(`benchmark fixture sampleRateHz is invalid: ${entry.caseId}`);
     }
