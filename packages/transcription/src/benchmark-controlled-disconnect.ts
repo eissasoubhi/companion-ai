@@ -17,6 +17,9 @@ function requireRetryableCloseCode(value: number): 1011 | 1012 | 1013 {
 function requireCanonicalReason(value: string): string {
   if (value.length === 0) throw new Error('controlled disconnect reason must not be empty');
   if (value.trim() !== value) throw new Error('controlled disconnect reason must be canonical');
+  if (new TextEncoder().encode(value).byteLength > 123) {
+    throw new RangeError('controlled disconnect reason must fit the WebSocket 123-byte close limit');
+  }
   return value;
 }
 
