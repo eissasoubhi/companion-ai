@@ -137,6 +137,52 @@ describe('TranscriptionChannel', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
+  it('forwards a final transcript emitted while the provider connection is closing', async () => {
+    const events: TranscriptionPipelineEvent[] = [];
+    let providerEmit: TranscriptionProviderEventHandler | undefined;
+    const provider: TranscriptionProvider = {
+      id: 'fake-stt',
+      async connect(_request, onEvent) {
+        providerEmit = onEvent;
+        return {
+          write: async () => undefined,
+          close: async () => {
+            providerEmit?.({
+              type: 'transcript',
+              segmentId: 'final-on-close',
+              text: 'Final answer',
+              isFinal: true,
+              startedAtMs: 1_000,
+              endedAtMs: 1_100,
+            });
+          },
+        };
+      },
+    };
+
+    const channel = await TranscriptionChannel.open(
+      provider,
+      { sessionId: 'session-1', source: 'remote', partialResults: true },
+      (event) => events.push(event),
+      () => 1_150,
+    );
+
+    await channel.close();
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'transcript',
+        segment: expect.objectContaining({
+          id: 'session-1:remote:final-on-close',
+          source: 'remote',
+          text: 'Final answer',
+          isFinal: true,
+        }),
+      }),
+    );
+    await expect(channel.writeAudio(audioChunk(0))).rejects.toThrow('closed');
+  });
+
   it('reconnects retryable failures without buffering audio or accepting stale events', async () => {
     const events: TranscriptionPipelineEvent[] = [];
     const emitters: TranscriptionProviderEventHandler[] = [];
