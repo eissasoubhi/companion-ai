@@ -31,6 +31,7 @@ export interface TranscriptOperationalAudioFixtures {
 
 export interface ProviderOperationalScenarioOptions {
   readonly timeoutMs?: number | undefined;
+  readonly clock?: (() => number) | undefined;
 }
 
 function requirePositiveFinite(value: number, field: string): number {
@@ -40,8 +41,26 @@ function requirePositiveFinite(value: number, field: string): number {
   return value;
 }
 
+function requireFiniteNonNegative(value: number, field: string): number {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError(`${field} must be a non-negative finite number`);
+  }
+  return value;
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function rebaseChunks(chunks: readonly AudioChunk[], anchorMs: number): readonly AudioChunk[] {
+  if (chunks.length === 0) return chunks;
+  const first = chunks[0];
+  if (!first) return chunks;
+  const originMs = requireFiniteNonNegative(first.capturedAtMs, 'fixture.capturedAtMs');
+  return chunks.map((chunk) => ({
+    ...chunk,
+    capturedAtMs: anchorMs + (requireFiniteNonNegative(chunk.capturedAtMs, 'fixture.capturedAtMs') - originMs),
+  }));
 }
 
 interface ProviderOperationalCompositionOptions {
@@ -49,6 +68,7 @@ interface ProviderOperationalCompositionOptions {
   readonly request: TranscriptionConnectRequest;
   readonly fixtures: TranscriptOperationalAudioFixtures;
   readonly timeoutMs?: number | undefined;
+  readonly clock?: (() => number) | undefined;
   readonly createProvider: () => TranscriptionProvider;
   readonly reconnect: ReturnType<typeof createDeepgramReconnectScenarioExecutor>;
 }
@@ -58,30 +78,58 @@ function composeProviderOperationalExecutor(options: ProviderOperationalComposit
     options.fixtures.falseFinalization.pauseMs,
     'falseFinalization.pauseMs',
   );
+  const clock = options.clock ?? Date.now;
   const sharedOptions = options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs };
 
   return composeTranscriptOperationalScenarioExecutor({
     endpointFinalization: createTranscriptChannelEndpointFinalizationScenarioExecutor({
       ...sharedOptions,
+      clock,
       providerId: options.providerId,
-      createScenario: () => ({
-        provider: options.createProvider(),
-        request: options.request,
-        chunks: options.fixtures.endpointFinalization.chunks,
-        audioEndedAtMs: options.fixtures.endpointFinalization.audioEndedAtMs,
-      }),
+      createScenario: () => {
+        const anchorMs = requireFiniteNonNegative(clock(), 'clock');
+        const originalChunks = options.fixtures.endpointFinalization.chunks;
+        const first = originalChunks[0];
+        const originMs = first ? requireFiniteNonNegative(first.capturedAtMs, 'fixture.capturedAtMs') : 0;
+        const originalAudioEndedAtMs = requireFiniteNonNegative(
+          options.fixtures.endpointFinalization.audioEndedAtMs,
+          'endpointFinalization.audioEndedAtMs',
+        );
+        return {
+          provider: options.createProvider(),
+          request: options.request,
+          chunks: rebaseChunks(originalChunks, anchorMs),
+          audioEndedAtMs: anchorMs + (originalAudioEndedAtMs - originMs),
+        };
+      },
     }),
     reconnect: options.reconnect,
     falseFinalization: createTranscriptChannelFalseFinalizationScenarioExecutor({
       ...sharedOptions,
       providerId: options.providerId,
-      createScenario: () => ({
-        provider: options.createProvider(),
-        request: options.request,
-        beforePauseChunks: options.fixtures.falseFinalization.beforePauseChunks,
-        afterPauseChunks: options.fixtures.falseFinalization.afterPauseChunks,
-        waitDuringPause: () => wait(pauseMs),
-      }),
+      createScenario: () => {
+        const anchorMs = requireFiniteNonNegative(clock(), 'clock');
+        const combined = [
+          ...options.fixtures.falseFinalization.beforePauseChunks,
+          ...options.fixtures.falseFinalization.afterPauseChunks,
+        ];
+        const first = combined[0];
+        const originMs = first ? requireFiniteNonNegative(first.capturedAtMs, 'fixture.capturedAtMs') : 0;
+        const rebase = (chunks: readonly AudioChunk[]): readonly AudioChunk[] =>
+          chunks.map((chunk) => ({
+            ...chunk,
+            capturedAtMs:
+              anchorMs +
+              (requireFiniteNonNegative(chunk.capturedAtMs, 'fixture.capturedAtMs') - originMs),
+          }));
+        return {
+          provider: options.createProvider(),
+          request: options.request,
+          beforePauseChunks: rebase(options.fixtures.falseFinalization.beforePauseChunks),
+          afterPauseChunks: rebase(options.fixtures.falseFinalization.afterPauseChunks),
+          waitDuringPause: () => wait(pauseMs),
+        };
+      },
     }),
   });
 }
@@ -95,6 +143,7 @@ export function createDeepgramOperationalScenarioExecutor(
   const sharedOptions = options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs };
   return composeProviderOperationalExecutor({
     ...sharedOptions,
+    ...(options.clock === undefined ? {} : { clock: options.clock }),
     providerId: 'deepgram:nova-3',
     request,
     fixtures,
@@ -112,6 +161,7 @@ export function createAssemblyAIOperationalScenarioExecutor(
   const sharedOptions = options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs };
   return composeProviderOperationalExecutor({
     ...sharedOptions,
+    ...(options.clock === undefined ? {} : { clock: options.clock }),
     providerId: 'assemblyai:universal-3-5-pro',
     request,
     fixtures,
@@ -129,6 +179,7 @@ export function createOpenAIOperationalScenarioExecutor(
   const sharedOptions = options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs };
   return composeProviderOperationalExecutor({
     ...sharedOptions,
+    ...(options.clock === undefined ? {} : { clock: options.clock }),
     providerId: 'openai:gpt-live-transcribe',
     request,
     fixtures,
