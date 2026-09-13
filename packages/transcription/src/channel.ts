@@ -329,6 +329,11 @@ export class TranscriptionChannel {
           source: this.source,
           ...(event.reason === undefined ? {} : { reason: event.reason }),
         });
+        if (!this.#closing && this.#reconnectPromise === null) {
+          this.#closed = true;
+          this.#reconnectRequested = false;
+          this.#generation += 1;
+        }
         return;
 
       case 'transcript': {
