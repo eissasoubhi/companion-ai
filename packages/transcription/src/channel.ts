@@ -321,7 +321,13 @@ export class TranscriptionChannel {
         if (event.retryable) this.#beginReconnect();
         return;
 
-      case 'closed':
+      case 'closed': {
+        const terminalClosure = !this.#closing && this.#reconnectPromise === null;
+        if (terminalClosure) {
+          this.#closed = true;
+          this.#reconnectRequested = false;
+          this.#generation += 1;
+        }
         this.#emit({
           type: 'provider-closed',
           providerId: this.providerId,
@@ -329,12 +335,8 @@ export class TranscriptionChannel {
           source: this.source,
           ...(event.reason === undefined ? {} : { reason: event.reason }),
         });
-        if (!this.#closing && this.#reconnectPromise === null) {
-          this.#closed = true;
-          this.#reconnectRequested = false;
-          this.#generation += 1;
-        }
         return;
+      }
 
       case 'transcript': {
         const text = event.text.trim();
