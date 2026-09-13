@@ -6,10 +6,21 @@ import {
   createOpenAIDisconnectBenchmark,
 } from './benchmark-provider-disconnect.js';
 
+function benchmarkSocket(close: ReturnType<typeof vi.fn>) {
+  return {
+    close,
+    send: vi.fn(),
+    onOpen: vi.fn(),
+    onMessage: vi.fn(),
+    onError: vi.fn(),
+    onClose: vi.fn(),
+  };
+}
+
 describe('provider disconnect benchmark config wrappers', () => {
   it('wraps Deepgram without changing provider configuration or exposing auth', () => {
     const close = vi.fn();
-    const createSocket = vi.fn(() => ({ close }));
+    const createSocket = vi.fn(() => benchmarkSocket(close));
     const benchmark = createDeepgramDisconnectBenchmark({
       createSocket,
       audioFormat: { encoding: 'pcm-s16le', sampleRateHz: 16_000, channels: 1 },
@@ -28,11 +39,11 @@ describe('provider disconnect benchmark config wrappers', () => {
     const assemblyClose = vi.fn();
     const openAIClose = vi.fn();
     const assembly = createAssemblyAIDisconnectBenchmark({
-      createSocket: () => ({ close: assemblyClose }),
+      createSocket: () => benchmarkSocket(assemblyClose),
       sampleRateHz: 16_000,
     });
     const openai = createOpenAIDisconnectBenchmark({
-      createSocket: () => ({ close: openAIClose }),
+      createSocket: () => benchmarkSocket(openAIClose),
       sampleRateHz: 24_000,
     });
 
@@ -49,7 +60,7 @@ describe('provider disconnect benchmark config wrappers', () => {
 
   it('fails closed before each provider has created an active socket', () => {
     const deepgram = createDeepgramDisconnectBenchmark({
-      createSocket: () => ({ close: () => undefined }),
+      createSocket: () => benchmarkSocket(vi.fn()),
       audioFormat: { encoding: 'pcm-s16le', sampleRateHz: 16_000, channels: 1 },
     });
 
