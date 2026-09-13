@@ -3,18 +3,13 @@ export interface DisconnectableBenchmarkSocket {
 }
 
 export interface ControlledDisconnectOptions {
-  readonly closeCode?: number | undefined;
+  readonly closeCode?: 1011 | 1012 | 1013 | undefined;
   readonly reason?: string | undefined;
 }
 
-export interface ControlledDisconnectSocketFactory<TSocket extends DisconnectableBenchmarkSocket> {
-  readonly createSocket: (...args: never[]) => TSocket;
-  triggerDisconnect(): void;
-}
-
-function requireRetryableCloseCode(value: number): number {
-  if (!Number.isInteger(value) || value < 1000 || value > 4999 || value === 1000) {
-    throw new RangeError('controlled disconnect closeCode must be a non-normal WebSocket close code');
+function requireRetryableCloseCode(value: number): 1011 | 1012 | 1013 {
+  if (value !== 1011 && value !== 1012 && value !== 1013) {
+    throw new RangeError('controlled disconnect closeCode must be retryable by every STT adapter');
   }
   return value;
 }
