@@ -8,30 +8,32 @@ export interface ProviderDisconnectBenchmark<TConfig> {
   triggerDisconnect(): void;
 }
 
-function wrapConfig<TConfig extends { readonly createSocket: (...args: never[]) => { close(code?: number, reason?: string): void } }>(
-  config: TConfig,
-): ProviderDisconnectBenchmark<TConfig> {
+export function createDeepgramDisconnectBenchmark(
+  config: DeepgramProviderConfig,
+): ProviderDisconnectBenchmark<DeepgramProviderConfig> {
   const harness = createControlledDisconnectSocketFactory(config.createSocket);
   return {
     config: { ...config, createSocket: harness.createSocket },
     triggerDisconnect: harness.triggerDisconnect,
-  } as ProviderDisconnectBenchmark<TConfig>;
-}
-
-export function createDeepgramDisconnectBenchmark(
-  config: DeepgramProviderConfig,
-): ProviderDisconnectBenchmark<DeepgramProviderConfig> {
-  return wrapConfig(config);
+  };
 }
 
 export function createAssemblyAIDisconnectBenchmark(
   config: AssemblyAIProviderConfig,
 ): ProviderDisconnectBenchmark<AssemblyAIProviderConfig> {
-  return wrapConfig(config);
+  const harness = createControlledDisconnectSocketFactory(config.createSocket);
+  return {
+    config: { ...config, createSocket: harness.createSocket },
+    triggerDisconnect: harness.triggerDisconnect,
+  };
 }
 
 export function createOpenAIDisconnectBenchmark(
   config: OpenAILiveTranscriptionConfig,
 ): ProviderDisconnectBenchmark<OpenAILiveTranscriptionConfig> {
-  return wrapConfig(config);
+  const harness = createControlledDisconnectSocketFactory(config.createSocket);
+  return {
+    config: { ...config, createSocket: harness.createSocket },
+    triggerDisconnect: harness.triggerDisconnect,
+  };
 }
