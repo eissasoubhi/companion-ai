@@ -22,6 +22,17 @@ export interface TranscriptBenchmarkBatchResult {
   readonly runs: readonly TranscriptBenchmarkExecutionResult[];
 }
 
+function canonicalIdentifier(value: string, label: string): string {
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    throw new Error(`${label} must not be empty`);
+  }
+  if (normalized !== value) {
+    throw new Error(`${label} must not have surrounding whitespace: ${JSON.stringify(value)}`);
+  }
+  return normalized;
+}
+
 function assertProviders(providers: readonly TranscriptionProvider[]): readonly string[] {
   if (providers.length === 0) {
     throw new Error('at least one transcription provider is required');
@@ -31,10 +42,7 @@ function assertProviders(providers: readonly TranscriptionProvider[]): readonly 
   const seen = new Set<string>();
 
   for (const provider of providers) {
-    const providerId = provider.id.trim();
-    if (providerId.length === 0) {
-      throw new Error('provider id must not be empty');
-    }
+    const providerId = canonicalIdentifier(provider.id, 'provider id');
     if (seen.has(providerId)) {
       throw new Error(`duplicate transcription provider id: ${providerId}`);
     }
@@ -53,10 +61,7 @@ function assertCorpus(corpus: readonly TranscriptBenchmarkCorpusCase[]): readonl
   const caseIds: string[] = [];
   const seen = new Set<string>();
   for (const sample of corpus) {
-    const caseId = sample.id.trim();
-    if (caseId.length === 0) {
-      throw new Error('benchmark corpus case id must not be empty');
-    }
+    const caseId = canonicalIdentifier(sample.id, 'benchmark corpus case id');
     if (seen.has(caseId)) {
       throw new Error(`duplicate benchmark corpus case id: ${caseId}`);
     }
@@ -75,12 +80,8 @@ export async function executeTranscriptBenchmarkBatch(
   const providerIds = assertProviders(providers);
   const caseIds = assertCorpus(corpus);
 
-  if (fixtureSet.manifest.corpusVersion.trim().length === 0) {
-    throw new Error('benchmark fixture corpusVersion must not be empty');
-  }
-  if (fixtureSet.manifest.fixtureSetId.trim().length === 0) {
-    throw new Error('benchmark fixture fixtureSetId must not be empty');
-  }
+  canonicalIdentifier(fixtureSet.manifest.corpusVersion, 'benchmark fixture corpusVersion');
+  canonicalIdentifier(fixtureSet.manifest.fixtureSetId, 'benchmark fixture fixtureSetId');
 
   const sessionIdPrefix =
     options.sessionIdPrefix?.trim() || `benchmark:${fixtureSet.manifest.fixtureSetId}`;
