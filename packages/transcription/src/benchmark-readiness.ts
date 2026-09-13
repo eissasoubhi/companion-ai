@@ -27,23 +27,43 @@ function isRate(value: number | null): boolean {
   return value !== null && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
+function isNonNegativeInteger(value: number): boolean {
+  return Number.isInteger(value) && value >= 0;
+}
+
 function candidateReasons(candidate: TranscriptBenchmarkCandidate): string[] {
   const providerId = candidate.report.providerId;
   const reasons: string[] = [];
+  const accuracy = candidate.report.accuracy;
 
-  if (candidate.report.sampleCount === 0 || candidate.report.accuracy.sampleCount === 0) {
+  if (candidate.report.sampleCount === 0 || accuracy.sampleCount === 0) {
     reasons.push(`${providerId}: missing accuracy samples`);
   }
-  if (candidate.report.accuracy.referenceWordCount === 0) {
+  if (
+    !isNonNegativeInteger(candidate.report.sampleCount)
+    || !isNonNegativeInteger(accuracy.sampleCount)
+    || candidate.report.sampleCount !== accuracy.sampleCount
+    || accuracy.samples.length !== accuracy.sampleCount
+  ) {
+    reasons.push(`${providerId}: inconsistent accuracy sample counts`);
+  }
+  if (!isNonNegativeInteger(accuracy.referenceWordCount) || accuracy.referenceWordCount === 0) {
     reasons.push(`${providerId}: missing reference transcript words`);
   }
-  if (!Number.isFinite(candidate.report.accuracy.wordErrorRate) || candidate.report.accuracy.wordErrorRate < 0) {
+  if (!Number.isFinite(accuracy.wordErrorRate) || accuracy.wordErrorRate < 0) {
     reasons.push(`${providerId}: invalid word error rate`);
   }
-  if (candidate.report.accuracy.keyTermCount === 0 || candidate.report.accuracy.keyTermAccuracy === null) {
+  if (accuracy.keyTermCount === 0 || accuracy.keyTermAccuracy === null) {
     reasons.push(`${providerId}: missing technical-term accuracy samples`);
-  } else if (!isRate(candidate.report.accuracy.keyTermAccuracy)) {
+  } else if (!isRate(accuracy.keyTermAccuracy)) {
     reasons.push(`${providerId}: invalid technical-term accuracy`);
+  }
+  if (
+    !isNonNegativeInteger(accuracy.keyTermCount)
+    || !isNonNegativeInteger(accuracy.keyTermMatches)
+    || accuracy.keyTermMatches > accuracy.keyTermCount
+  ) {
+    reasons.push(`${providerId}: invalid technical-term counts`);
   }
 
   if (candidate.report.latency.partial.count === 0) {
@@ -88,6 +108,10 @@ export function assessTranscriptBenchmarkReadiness(
   const reasons: string[] = [];
   const candidatesById = new Map<string, TranscriptBenchmarkCandidate>();
   const requiredIds = new Set<string>();
+
+  if (requiredProviderIds.length === 0) {
+    reasons.push('at least one required providerId is required');
+  }
 
   for (const candidate of candidates) {
     const providerId = candidate.report.providerId.trim();
