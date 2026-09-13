@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  MAX_TRANSCRIPT_BENCHMARK_CHUNK_BYTES,
   loadTranscriptBenchmarkFixtureSet,
   type TranscriptBenchmarkFixtureManifest,
 } from './index.js';
@@ -65,6 +66,22 @@ describe('loadTranscriptBenchmarkFixtureSet', () => {
     expect(loaded.fixtures[0]?.chunks.map((chunk) => chunk.data.byteLength)).toEqual([1600, 1600]);
     expect(loaded.fixtures[0]?.chunks.map((chunk) => chunk.sequence)).toEqual([0, 1]);
     expect(loaded.fixtures[0]?.chunks.map((chunk) => chunk.capturedAtMs)).toEqual([0, 50]);
+  });
+
+  it('hard-bounds chunks even when the requested duration is extreme', async () => {
+    const audio = new Uint8Array(MAX_TRANSCRIPT_BENCHMARK_CHUNK_BYTES * 3);
+    const manifestPath = await createFixtureSet(audio);
+
+    const loaded = await loadTranscriptBenchmarkFixtureSet(manifestPath, ['case-one'], {
+      chunkDurationMs: 60_000,
+    });
+
+    const chunks = loaded.fixtures[0]?.chunks ?? [];
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(Math.max(...chunks.map((chunk) => chunk.data.byteLength))).toBeLessThanOrEqual(
+      MAX_TRANSCRIPT_BENCHMARK_CHUNK_BYTES,
+    );
+    expect(chunks.every((chunk) => chunk.data.byteLength % 2 === 0)).toBe(true);
   });
 
   it('fails closed when fixture bytes do not match the manifest hash', async () => {
