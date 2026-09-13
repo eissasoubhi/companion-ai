@@ -137,10 +137,12 @@ describe('TranscriptionChannel', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
-  it('fails closed when the active provider connection terminates', async () => {
+  it('fails closed before publishing an active provider terminal closure', async () => {
     const events: TranscriptionPipelineEvent[] = [];
     const write = vi.fn(async () => undefined);
     let providerEmit: TranscriptionProviderEventHandler | undefined;
+    let channel: TranscriptionChannel | undefined;
+    let reentrantWrite: Promise<void> | undefined;
     const provider: TranscriptionProvider = {
       id: 'fake-stt',
       async connect(_request, onEvent) {
@@ -149,10 +151,15 @@ describe('TranscriptionChannel', () => {
       },
     };
 
-    const channel = await TranscriptionChannel.open(
+    channel = await TranscriptionChannel.open(
       provider,
       { sessionId: 'session-1', source: 'remote', partialResults: true },
-      (event) => events.push(event),
+      (event) => {
+        events.push(event);
+        if (event.type === 'provider-closed') {
+          reentrantWrite = channel?.writeAudio(audioChunk(0));
+        }
+      },
     );
 
     providerEmit?.({ type: 'closed', reason: 'provider-ended-stream' });
@@ -164,6 +171,8 @@ describe('TranscriptionChannel', () => {
       source: 'remote',
       reason: 'provider-ended-stream',
     });
+    expect(reentrantWrite).toBeDefined();
+    await expect(reentrantWrite!).rejects.toThrow('closed');
     await expect(channel.writeAudio(audioChunk(0))).rejects.toThrow('closed');
     expect(write).not.toHaveBeenCalled();
   });
