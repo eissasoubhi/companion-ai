@@ -75,12 +75,14 @@ describe('assertTranscriptBenchmarkFixtureManifest', () => {
   it('rejects unsafe paths and malformed hashes before file IO', () => {
     const base = manifest();
 
-    expect(() =>
-      assertTranscriptBenchmarkFixtureManifest({
-        ...base,
-        entries: [{ ...base.entries[0]!, path: '../secret.pcm' }],
-      }),
-    ).toThrow('benchmark fixture path must be a safe relative path: case-one');
+    for (const path of ['../secret.pcm', 'audio/./case-one.pcm', 'C:/secret.pcm']) {
+      expect(() =>
+        assertTranscriptBenchmarkFixtureManifest({
+          ...base,
+          entries: [{ ...base.entries[0]!, path }],
+        }),
+      ).toThrow('benchmark fixture path must be a safe relative path: case-one');
+    }
 
     expect(() =>
       assertTranscriptBenchmarkFixtureManifest({
@@ -100,8 +102,20 @@ describe('assertTranscriptBenchmarkFixtureManifest', () => {
     ).toThrow('unexpected benchmark fixture manifest entry: case-two');
   });
 
-  it('rejects invalid audio metadata and duplicate expected case ids', () => {
+  it('rejects invalid runtime audio metadata and duplicate expected case ids', () => {
     const base = manifest();
+
+    expect(() =>
+      assertTranscriptBenchmarkFixtureManifest({
+        ...base,
+        entries: [
+          {
+            ...base.entries[0]!,
+            encoding: 'wav' as TranscriptBenchmarkFixtureManifest['entries'][number]['encoding'],
+          },
+        ],
+      }),
+    ).toThrow('benchmark fixture encoding is invalid: case-one');
 
     expect(() =>
       assertTranscriptBenchmarkFixtureManifest({
