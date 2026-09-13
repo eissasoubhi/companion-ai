@@ -6,17 +6,38 @@ import {
 } from './benchmark-live-reconnect-cli.js';
 
 describe('live reconnect benchmark CLI', () => {
-  it('parses the output, sample rate and optional timeout', () => {
-    const options = parseLiveReconnectCliArgs(['results/reconnect.json', '24000', '12000']);
+  it('parses provenance, sample rate and optional timeout', () => {
+    const options = parseLiveReconnectCliArgs([
+      'results/reconnect.json',
+      'run-2026-09-13',
+      'corpus-v1',
+      '24000',
+      '12000',
+    ]);
     expect(options.outputPath).toMatch(/results\/reconnect\.json$/);
+    expect(options.benchmarkRunId).toBe('run-2026-09-13');
+    expect(options.corpusVersion).toBe('corpus-v1');
     expect(options.sampleRateHz).toBe(24_000);
     expect(options.timeoutMs).toBe(12_000);
   });
 
   it('rejects invalid numeric arguments', () => {
-    expect(() => parseLiveReconnectCliArgs(['out.json', '0'])).toThrow(/sample-rate-hz/);
-    expect(() => parseLiveReconnectCliArgs(['out.json', '24000', 'NaN'])).toThrow(/timeout-ms/);
+    expect(() =>
+      parseLiveReconnectCliArgs(['out.json', 'run-1', 'corpus-v1', '0']),
+    ).toThrow(/sample-rate-hz/);
+    expect(() =>
+      parseLiveReconnectCliArgs(['out.json', 'run-1', 'corpus-v1', '24000', 'NaN']),
+    ).toThrow(/timeout-ms/);
     expect(() => parseLiveReconnectCliArgs(['out.json'])).toThrow(/usage/);
+  });
+
+  it('rejects non-canonical evidence provenance', () => {
+    expect(() =>
+      parseLiveReconnectCliArgs(['out.json', ' run-1', 'corpus-v1', '24000']),
+    ).toThrow(/benchmark-run-id/);
+    expect(() =>
+      parseLiveReconnectCliArgs(['out.json', 'run-1', 'corpus-v1 ', '24000']),
+    ).toThrow(/corpus-version/);
   });
 
   it('requires all three credentials before creating live transports', () => {
