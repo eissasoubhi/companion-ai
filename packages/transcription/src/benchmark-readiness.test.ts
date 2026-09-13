@@ -55,6 +55,7 @@ function candidate(providerId = 'provider-a') {
   return {
     report,
     operational: {
+      providerId,
       endpointFinalizationP95Ms: 120,
       reconnectSuccessRate: 1,
       recoveryP95Ms: 350,
@@ -126,6 +127,51 @@ describe('assessTranscriptBenchmarkReadiness', () => {
       'provider-a: missing endpoint/finalization p95',
       'provider-a: missing reconnect success rate',
       'provider-a: EU processing availability not verified',
+    ]));
+  });
+
+  it('rejects operational evidence attributed to another provider', () => {
+    const invalid = candidate('provider-a');
+    const result = assessTranscriptBenchmarkReadiness(
+      [
+        {
+          ...invalid,
+          operational: {
+            ...invalid.operational,
+            providerId: 'provider-b',
+          },
+        },
+      ],
+      ['provider-a'],
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons).toContain(
+      'provider-a: operational evidence provider mismatch: received provider-b',
+    );
+  });
+
+  it('rejects empty or non-canonical operational provider ids', () => {
+    const empty = candidate('provider-a');
+    const spaced = candidate('provider-b');
+    const result = assessTranscriptBenchmarkReadiness(
+      [
+        {
+          ...empty,
+          operational: { ...empty.operational, providerId: '' },
+        },
+        {
+          ...spaced,
+          operational: { ...spaced.operational, providerId: ' provider-b ' },
+        },
+      ],
+      ['provider-a', 'provider-b'],
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      'provider-a: operational evidence providerId must not be empty',
+      'provider-b: operational evidence providerId must be canonical:  provider-b ',
     ]));
   });
 
