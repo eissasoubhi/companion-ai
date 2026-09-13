@@ -63,5 +63,8 @@ describe('createControlledDisconnectSocketFactory', () => {
     expect(() =>
       createControlledDisconnectSocketFactory(createSocket, { reason: '' }),
     ).toThrow('must not be empty');
+    expect(() =>
+      createControlledDisconnectSocketFactory(createSocket, { reason: 'é'.repeat(62) }),
+    ).toThrow('123-byte close limit');
   });
 });
