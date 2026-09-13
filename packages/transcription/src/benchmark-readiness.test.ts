@@ -17,12 +17,13 @@ const corpus = [
 ] as const satisfies readonly TranscriptBenchmarkCorpusCase[];
 
 function latency(
+  providerId: string,
   source: 'local' | 'remote',
   isFinal: boolean,
   lagMs: number,
 ): TranscriptLatencySample {
   return {
-    providerId: 'provider-a',
+    providerId,
     sessionId: 'benchmark',
     source,
     segmentId: `${source}-${isFinal ? 'final' : 'partial'}`,
@@ -42,10 +43,10 @@ function candidate(providerId = 'provider-a') {
         caseId: 'case-one',
         hypothesis: 'Explain Symfony',
         latencySamples: [
-          latency('local', false, 20),
-          latency('local', true, 40),
-          latency('remote', false, 30),
-          latency('remote', true, 50),
+          latency(providerId, 'local', false, 20),
+          latency(providerId, 'local', true, 40),
+          latency(providerId, 'remote', false, 30),
+          latency(providerId, 'remote', true, 50),
         ],
       },
     ],
@@ -226,7 +227,14 @@ describe('assessTranscriptBenchmarkReadiness', () => {
   });
 
   it('rejects non-canonical candidate ids instead of silently normalizing them', () => {
-    const invalid = candidate(' provider-a ');
+    const base = candidate('provider-a');
+    const invalid = {
+      ...base,
+      report: {
+        ...base.report,
+        providerId: ' provider-a ',
+      },
+    };
     const result = assessTranscriptBenchmarkReadiness([invalid], ['provider-a']);
 
     expect(result.ready).toBe(false);
