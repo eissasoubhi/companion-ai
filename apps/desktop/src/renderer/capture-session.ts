@@ -65,6 +65,13 @@ function stopRawStream(stream: MediaStream | undefined): void {
   for (const track of stream.getTracks()) track.stop();
 }
 
+function assertLiveAudioTrack(stream: MediaStream, source: LiveAudioSource): void {
+  const track = stream.getAudioTracks().find((candidate) => candidate.readyState === 'live');
+  if (!track) {
+    throw new Error(`No live ${source} audio track is available after capture.`);
+  }
+}
+
 function firstRejectedReason(results: readonly PromiseSettledResult<unknown>[]): unknown | undefined {
   return results.find(
     (result): result is PromiseRejectedResult => result.status === 'rejected',
@@ -173,11 +180,19 @@ export async function startCaptureSession(
   try {
     localStream = await runStartupStage(
       'microphone-capture',
-      () => dependencies.getUserMedia({ audio: true, video: false }),
+      async () => {
+        const stream = await dependencies.getUserMedia({ audio: true, video: false });
+        assertLiveAudioTrack(stream, 'local');
+        return stream;
+      },
     );
     remoteStream = await runStartupStage(
       'remote-capture',
-      () => dependencies.getDisplayMedia({ audio: true, video: true }),
+      async () => {
+        const stream = await dependencies.getDisplayMedia({ audio: true, video: true });
+        assertLiveAudioTrack(stream, 'remote');
+        return stream;
+      },
     );
 
     const transcriptionOptions = options.language === undefined
