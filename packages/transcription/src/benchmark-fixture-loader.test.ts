@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -25,12 +26,13 @@ async function createFixtureSet(
   tempDirs.push(root);
 
   const storageEncoding = overrides.storageEncoding ?? 'raw';
-  const fileName = storageEncoding === 'base64' ? 'case-one.pcm.b64' : 'case-one.pcm';
+  const fileName = storageEncoding === 'raw' ? 'case-one.pcm' : `case-one.pcm.${storageEncoding}.txt`;
   const audioPath = join(root, fileName);
-  await writeFile(
-    audioPath,
-    storageEncoding === 'base64' ? Buffer.from(audio).toString('base64') : audio,
-  );
+  const stored =
+    storageEncoding === 'raw'
+      ? audio
+      : Buffer.from(storageEncoding === 'gzip-base64' ? gzipSync(audio) : audio).toString('base64');
+  await writeFile(audioPath, stored);
 
   const manifest: TranscriptBenchmarkFixtureManifest = {
     version: 1,
@@ -73,27 +75,43 @@ describe('loadTranscriptBenchmarkFixtureSet', () => {
     expect(loaded.fixtures[0]?.chunks.map((chunk) => chunk.capturedAtMs)).toEqual([0, 50]);
   });
 
-  it('decodes canonical base64 storage before hashing and chunking', async () => {
-    const audio = new Uint8Array([1, 2, 3, 4]);
-    const manifestPath = await createFixtureSet(audio, { storageEncoding: 'base64' });
+  it.each(['base64', 'gzip-base64'] as const)(
+    'decodes canonical %s storage before hashing and chunking',
+    async (storageEncoding) => {
+      const audio = new Uint8Array([1, 2, 3, 4]);
+      const manifestPath = await createFixtureSet(audio, { storageEncoding });
 
-    const loaded = await loadTranscriptBenchmarkFixtureSet(manifestPath, ['case-one']);
+      const loaded = await loadTranscriptBenchmarkFixtureSet(manifestPath, ['case-one']);
 
-    expect(Array.from(loaded.fixtures[0]?.chunks[0]?.data ?? [])).toEqual([1, 2, 3, 4]);
-  });
+      expect(Array.from(loaded.fixtures[0]?.chunks[0]?.data ?? [])).toEqual([1, 2, 3, 4]);
+    },
+  );
 
   it('rejects malformed or non-canonical base64 storage', async () => {
     const audio = new Uint8Array([1, 2, 3, 4]);
     const malformed = await createFixtureSet(audio, { storageEncoding: 'base64' });
-    await writeFile(join(malformed, '..', 'case-one.pcm.b64'), 'not base64!');
+    await writeFile(join(malformed, '..', 'case-one.pcm.base64.txt'), 'not base64!');
     await expect(loadTranscriptBenchmarkFixtureSet(malformed)).rejects.toThrow(
       'benchmark fixture base64 is invalid: case-one',
     );
 
     const nonCanonical = await createFixtureSet(audio, { storageEncoding: 'base64' });
-    await writeFile(join(nonCanonical, '..', 'case-one.pcm.b64'), 'AQIDBA====');
+    await writeFile(join(nonCanonical, '..', 'case-one.pcm.base64.txt'), 'AQIDBA====');
     await expect(loadTranscriptBenchmarkFixtureSet(nonCanonical)).rejects.toThrow(
       'benchmark fixture base64 is invalid: case-one',
+    );
+  });
+
+  it('rejects invalid gzip data after bounded base64 decoding', async () => {
+    const audio = new Uint8Array([1, 2, 3, 4]);
+    const manifestPath = await createFixtureSet(audio, { storageEncoding: 'gzip-base64' });
+    await writeFile(
+      join(manifestPath, '..', 'case-one.pcm.gzip-base64.txt'),
+      Buffer.from('not-gzip').toString('base64'),
+    );
+
+    await expect(loadTranscriptBenchmarkFixtureSet(manifestPath)).rejects.toThrow(
+      'benchmark fixture gzip decode failed: case-one',
     );
   });
 
