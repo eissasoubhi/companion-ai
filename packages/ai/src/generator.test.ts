@@ -18,7 +18,7 @@ function request(requestId: string): AnswerGenerationRequest {
 }
 
 describe('streamAnswerSuggestion', () => {
-  it('assembles deltas and measures time to first token and completion', async () => {
+  it('assembles deltas and measures provider plus trigger-to-first-token latency', async () => {
     const provider: LLMProvider = {
       id: 'fake-llm',
       async *stream() {
@@ -33,7 +33,7 @@ describe('streamAnswerSuggestion', () => {
 
     const suggestion = await streamAnswerSuggestion(
       provider,
-      request('r1'),
+      { ...request('r1'), triggeredAtMs: 900 },
       (event) => events.push(event),
       new AbortController().signal,
       clock,
@@ -50,10 +50,43 @@ describe('streamAnswerSuggestion', () => {
         text: 'I led a migration.',
       },
       metrics: {
+        triggeredAtMs: 900,
         timeToFirstTokenMs: 120,
+        triggerToFirstTokenMs: 220,
         totalDurationMs: 300,
       },
     });
+  });
+
+  it('omits trigger latency when the trigger timestamp is not finite', async () => {
+    const provider: LLMProvider = {
+      id: 'fake-llm',
+      async *stream() {
+        yield { type: 'delta', text: 'answer' } as const;
+        yield { type: 'completed', finishReason: 'stop' } as const;
+      },
+    };
+    const events: AnswerGenerationEvent[] = [];
+    const times = [1_000, 1_050, 1_100];
+    const clock = () => times.shift() ?? 1_100;
+
+    await streamAnswerSuggestion(
+      provider,
+      { ...request('invalid-trigger'), triggeredAtMs: Number.NaN },
+      (event) => events.push(event),
+      new AbortController().signal,
+      clock,
+    );
+
+    const suggestionEvent = events.find((event) => event.type === 'suggestion');
+    expect(suggestionEvent).toMatchObject({
+      type: 'suggestion',
+      metrics: { timeToFirstTokenMs: 50 },
+    });
+    if (suggestionEvent?.type === 'suggestion') {
+      expect(suggestionEvent.metrics.triggeredAtMs).toBeUndefined();
+      expect(suggestionEvent.metrics.triggerToFirstTokenMs).toBeUndefined();
+    }
   });
 
   it('fails closed if a provider ends without an explicit completion event', async () => {
