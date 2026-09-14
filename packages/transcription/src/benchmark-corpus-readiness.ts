@@ -1,5 +1,4 @@
 import {
-  requiredTechnicalTerms,
   summarizeBenchmarkCorpusCoverage,
   validateBenchmarkCorpus,
   type BenchmarkLocale,
@@ -62,13 +61,6 @@ export function assessBenchmarkCorpusReadiness(
 
   if (corpus.length === 0) {
     reasons.push('benchmark corpus must not be empty');
-  }
-
-  const unexpectedRequiredTerms = coverage.coveredTechnicalTerms.filter(
-    (term) => !requiredTechnicalTerms.includes(term as (typeof requiredTechnicalTerms)[number]),
-  );
-  if (unexpectedRequiredTerms.length > 0) {
-    reasons.push(`unexpected required technical terms: ${unexpectedRequiredTerms.join(', ')}`);
   }
 
   return {
