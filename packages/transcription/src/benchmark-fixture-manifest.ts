@@ -48,6 +48,20 @@ function assertRelativeFixturePath(path: string, caseId: string): void {
   }
 }
 
+function sameFixtureAsset(
+  left: TranscriptBenchmarkFixtureManifestEntry,
+  right: TranscriptBenchmarkFixtureManifestEntry,
+): boolean {
+  return (
+    left.source === right.source &&
+    left.sha256 === right.sha256 &&
+    left.encoding === right.encoding &&
+    left.sampleRateHz === right.sampleRateHz &&
+    left.channels === right.channels &&
+    (left.storageEncoding ?? 'raw') === (right.storageEncoding ?? 'raw')
+  );
+}
+
 export function assertTranscriptBenchmarkFixtureManifest(
   manifest: TranscriptBenchmarkFixtureManifest,
   expectedCaseIds?: readonly string[],
@@ -64,7 +78,7 @@ export function assertTranscriptBenchmarkFixtureManifest(
   }
 
   const seenCaseIds = new Set<string>();
-  const seenPaths = new Set<string>();
+  const seenPaths = new Map<string, TranscriptBenchmarkFixtureManifestEntry>();
 
   for (const entry of manifest.entries) {
     assertIdentifier(entry.caseId, 'benchmark fixture caseId');
@@ -79,10 +93,11 @@ export function assertTranscriptBenchmarkFixtureManifest(
 
     assertRelativeFixturePath(entry.path, entry.caseId);
     const normalizedPath = entry.path.replaceAll('\\', '/');
-    if (seenPaths.has(normalizedPath)) {
-      throw new Error(`duplicate benchmark fixture path: ${normalizedPath}`);
+    const existingEntry = seenPaths.get(normalizedPath);
+    if (existingEntry && !sameFixtureAsset(existingEntry, entry)) {
+      throw new Error(`benchmark fixture path has conflicting metadata: ${normalizedPath}`);
     }
-    seenPaths.add(normalizedPath);
+    seenPaths.set(normalizedPath, entry);
 
     if (!SHA256_PATTERN.test(entry.sha256)) {
       throw new Error(`benchmark fixture sha256 is invalid: ${entry.caseId}`);
