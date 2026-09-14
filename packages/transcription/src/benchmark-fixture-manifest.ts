@@ -1,6 +1,7 @@
 import type { AudioChunk, AudioEncoding } from './types.js';
 
 export const TRANSCRIPT_BENCHMARK_FIXTURE_MANIFEST_VERSION = 1 as const;
+export type TranscriptBenchmarkFixtureStorageEncoding = 'raw' | 'base64';
 
 export interface TranscriptBenchmarkFixtureManifestEntry {
   readonly caseId: string;
@@ -10,6 +11,7 @@ export interface TranscriptBenchmarkFixtureManifestEntry {
   readonly encoding: AudioChunk['encoding'];
   readonly sampleRateHz: number;
   readonly channels: number;
+  readonly storageEncoding?: TranscriptBenchmarkFixtureStorageEncoding | undefined;
 }
 
 export interface TranscriptBenchmarkFixtureManifest {
@@ -22,6 +24,7 @@ export interface TranscriptBenchmarkFixtureManifest {
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const WINDOWS_DRIVE_PATH_PATTERN = /^[a-zA-Z]:\//;
 const AUDIO_ENCODINGS = new Set<AudioEncoding>(['pcm-s16le', 'pcm-f32le', 'opus']);
+const STORAGE_ENCODINGS = new Set<TranscriptBenchmarkFixtureStorageEncoding>(['raw', 'base64']);
 
 function assertIdentifier(value: string, label: string): void {
   if (value.trim().length === 0) {
@@ -89,6 +92,11 @@ export function assertTranscriptBenchmarkFixtureManifest(
     }
     if (!Number.isInteger(entry.channels) || entry.channels <= 0) {
       throw new RangeError(`benchmark fixture channels is invalid: ${entry.caseId}`);
+    }
+
+    const storageEncoding = entry.storageEncoding ?? 'raw';
+    if (!STORAGE_ENCODINGS.has(storageEncoding)) {
+      throw new Error(`benchmark fixture storageEncoding is invalid: ${entry.caseId}`);
     }
   }
 
