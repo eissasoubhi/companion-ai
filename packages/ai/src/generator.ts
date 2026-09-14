@@ -35,7 +35,10 @@ function metricsFor(
   completedAtMs?: number,
 ): AnswerGenerationMetrics {
   const triggeredAtMs =
-    request.triggeredAtMs !== undefined && Number.isFinite(request.triggeredAtMs)
+    request.triggeredAtMs !== undefined &&
+    Number.isFinite(request.triggeredAtMs) &&
+    request.triggeredAtMs >= 0 &&
+    request.triggeredAtMs <= startedAtMs
       ? request.triggeredAtMs
       : undefined;
 
