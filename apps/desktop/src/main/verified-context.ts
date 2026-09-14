@@ -3,7 +3,7 @@ import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import type { GroundingSourceKind } from '@companion-ai/contracts';
 import type { ContextVerificationStatus, VerifiedContextItem } from '@companion-ai/grounding';
 
-const DEFAULT_MAX_FILE_BYTES = 1_048_576;
+const MAX_FILE_BYTES = 1_048_576;
 const MAX_ITEMS = 128;
 const MAX_ID_LENGTH = 128;
 const MAX_LABEL_LENGTH = 256;
@@ -149,10 +149,14 @@ function readBoundedUtf8File(filePath: string, maxFileBytes: number): string {
 
 export function loadVerifiedContextFromFile(
   filePath: string,
-  maxFileBytes = DEFAULT_MAX_FILE_BYTES,
+  maxFileBytes = MAX_FILE_BYTES,
 ): readonly VerifiedContextItem[] {
-  if (!Number.isSafeInteger(maxFileBytes) || maxFileBytes < 1) {
-    throw new Error('maxFileBytes must be a positive safe integer.');
+  if (
+    !Number.isSafeInteger(maxFileBytes) ||
+    maxFileBytes < 1 ||
+    maxFileBytes > MAX_FILE_BYTES
+  ) {
+    throw new Error(`maxFileBytes must be an integer between 1 and ${MAX_FILE_BYTES}.`);
   }
 
   const raw = readBoundedUtf8File(filePath, maxFileBytes);
