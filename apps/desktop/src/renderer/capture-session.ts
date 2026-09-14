@@ -68,6 +68,7 @@ function stopRawStream(stream: MediaStream | undefined): void {
 function assertLiveAudioTrack(stream: MediaStream, source: LiveAudioSource): void {
   const track = stream.getAudioTracks().find((candidate) => candidate.readyState === 'live');
   if (!track) {
+    stopRawStream(stream);
     throw new Error(`No live ${source} audio track is available after capture.`);
   }
 }
