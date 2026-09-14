@@ -26,39 +26,21 @@ describe('validateBenchmarkAudioEvidence', () => {
       origin: 'consented-recording',
       consentRecorded: true,
     };
-
-    expect(
-      validateBenchmarkAudioEvidence(
-        [validSample, consented],
-        ['en-recruiter-stack', 'fr-recruiter-parcours'],
-      ),
-    ).toEqual([]);
+    expect(validateBenchmarkAudioEvidence([validSample, consented], ['en-recruiter-stack', 'fr-recruiter-parcours'])).toEqual([]);
   });
 
   it('rejects unknown or duplicate cases, unsafe paths and invalid checksums', () => {
-    const bad: BenchmarkAudioEvidence = {
-      ...validSample,
-      corpusCaseId: 'missing',
-      file: '../outside.pcm',
-      sha256: 'ABC',
-    };
-
-    expect(validateBenchmarkAudioEvidence([bad, bad], ['en-recruiter-stack'])).toEqual(
-      expect.arrayContaining([
-        'unknown corpus case id: missing',
-        'duplicate audio evidence for corpus case: missing',
-        'missing: audio file must be a safe relative path',
-        'missing: sha256 must be 64 lowercase hex characters',
-      ]),
-    );
+    const bad: BenchmarkAudioEvidence = { ...validSample, corpusCaseId: 'missing', file: '../outside.pcm', sha256: 'ABC' };
+    expect(validateBenchmarkAudioEvidence([bad, bad], ['en-recruiter-stack'])).toEqual(expect.arrayContaining([
+      'unknown corpus case id: missing',
+      'duplicate audio evidence for corpus case: missing',
+      'missing: audio file must be a safe relative path',
+      'missing: sha256 must be 64 lowercase hex characters',
+    ]));
   });
 
   it('fails closed when consent metadata contradicts origin', () => {
-    const noConsent: BenchmarkAudioEvidence = {
-      ...validSample,
-      origin: 'consented-recording',
-      consentRecorded: false,
-    };
+    const noConsent: BenchmarkAudioEvidence = { ...validSample, origin: 'consented-recording', consentRecorded: false };
     const fakeConsent: BenchmarkAudioEvidence = {
       ...validSample,
       corpusCaseId: 'fr-recruiter-parcours',
@@ -66,25 +48,21 @@ describe('validateBenchmarkAudioEvidence', () => {
       sha256: 'b'.repeat(64),
       consentRecorded: true,
     };
-
-    expect(
-      validateBenchmarkAudioEvidence(
-        [noConsent, fakeConsent],
-        ['en-recruiter-stack', 'fr-recruiter-parcours'],
-      ),
-    ).toEqual(
-      expect.arrayContaining([
-        'en-recruiter-stack: consented recording requires recorded consent',
-        'fr-recruiter-parcours: synthetic audio must not claim recorded consent',
-      ]),
-    );
+    expect(validateBenchmarkAudioEvidence([noConsent, fakeConsent], ['en-recruiter-stack', 'fr-recruiter-parcours'])).toEqual(expect.arrayContaining([
+      'en-recruiter-stack: consented recording requires recorded consent',
+      'fr-recruiter-parcours: synthetic audio must not claim recorded consent',
+    ]));
   });
 });
 
 describe('summarizeBenchmarkAudioEvidenceCoverage', () => {
-  it('only reports ready when real evidence covers both noise and accent variation', () => {
-    expect(summarizeBenchmarkAudioEvidenceCoverage([]).ready).toBe(false);
-    expect(summarizeBenchmarkAudioEvidenceCoverage([validSample]).ready).toBe(false);
+  it('requires every corpus case plus noise and accent evidence', () => {
+    const corpusIds = ['en-recruiter-stack', 'mixed-architecture-messaging'];
+    expect(summarizeBenchmarkAudioEvidenceCoverage([], corpusIds).ready).toBe(false);
+    expect(summarizeBenchmarkAudioEvidenceCoverage([validSample], corpusIds)).toMatchObject({
+      missingCorpusCaseIds: ['mixed-architecture-messaging'],
+      ready: false,
+    });
 
     const noisyAccent: BenchmarkAudioEvidence = {
       ...validSample,
@@ -94,9 +72,9 @@ describe('summarizeBenchmarkAudioEvidenceCoverage', () => {
       noise: 'moderate-background',
       accent: 'accent-variation',
     };
-
-    expect(summarizeBenchmarkAudioEvidenceCoverage([validSample, noisyAccent])).toEqual({
+    expect(summarizeBenchmarkAudioEvidenceCoverage([validSample, noisyAccent], corpusIds)).toEqual({
       totalSamples: 2,
+      missingCorpusCaseIds: [],
       hasModerateBackgroundNoise: true,
       hasAccentVariation: true,
       ready: true,
