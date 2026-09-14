@@ -4,6 +4,7 @@ export * from './benchmark-channel-false-finalization.js';
 export * from './benchmark-channel-reconnect.js';
 export * from './benchmark-controlled-disconnect.js';
 export * from './benchmark-corpus.js';
+export * from './benchmark-evidence-readiness.js';
 export * from './benchmark-execution.js';
 export * from './benchmark-fixture-loader.js';
 export * from './benchmark-fixture-manifest.js';
