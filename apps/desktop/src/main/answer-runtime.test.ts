@@ -34,7 +34,7 @@ class FakeProvider implements LLMProvider {
 }
 
 describe('AnswerRuntime', () => {
-  it('maps a detected question to verified-context generation and emits streaming suggestions', async () => {
+  it('maps a detected question to verified-context generation and preserves trigger timing', async () => {
     const provider = new FakeProvider();
     const events: AnswerRuntimeEvent[] = [];
     const getContextItems = vi.fn(() => []);
@@ -55,6 +55,7 @@ describe('AnswerRuntime', () => {
         questionId: 'question-1',
         question: question.text,
         length: 'normal',
+        triggeredAtMs: question.detectedAtMs,
         grounding: [],
         groundingContext: [],
       }),
@@ -67,6 +68,9 @@ describe('AnswerRuntime', () => {
             questionId: 'question-1',
             text: 'Use constructor injection.',
             status: 'streaming',
+          }),
+          metrics: expect.objectContaining({
+            triggeredAtMs: question.detectedAtMs,
           }),
         }),
         expect.objectContaining({
