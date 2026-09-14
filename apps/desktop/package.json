@@ -11,7 +11,8 @@
     "pack:mac": "pnpm build && electron-builder --mac dir",
     "start": "pnpm build && electron .",
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "validate:capture": "pnpm build:main && node dist/main/capture-validation-cli.js"
   },
   "dependencies": {
     "@companion-ai/ai": "workspace:*",
