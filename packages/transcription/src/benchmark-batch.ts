@@ -10,7 +10,7 @@ import type { LoadedTranscriptBenchmarkFixtureSet } from './benchmark-fixture-lo
 import type { TranscriptBenchmarkFixtureManifest } from './benchmark-fixture-manifest.js';
 import type { TranscriptionProvider } from './types.js';
 
-export const TRANSCRIPT_BENCHMARK_BATCH_ARTIFACT_VERSION = 1 as const;
+export const TRANSCRIPT_BENCHMARK_BATCH_ARTIFACT_VERSION = 2 as const;
 
 export interface TranscriptBenchmarkBatchOptions extends TranscriptBenchmarkExecutionOptions {
   readonly sessionIdPrefix?: string | undefined;
