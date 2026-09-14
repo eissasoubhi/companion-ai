@@ -29,11 +29,12 @@ function manifest(
       {
         caseId: 'case-two',
         source: 'local',
-        path: 'audio/case-two.pcm',
+        path: 'audio/case-two.pcm.b64',
         sha256: HASH_B,
         encoding: 'pcm-s16le',
         sampleRateHz: 16_000,
         channels: 1,
+        storageEncoding: 'base64',
       },
     ],
     ...overrides,
@@ -90,6 +91,21 @@ describe('assertTranscriptBenchmarkFixtureManifest', () => {
         entries: [{ ...base.entries[0]!, sha256: 'not-a-hash' }],
       }),
     ).toThrow('benchmark fixture sha256 is invalid: case-one');
+  });
+
+  it('rejects unsupported storage encodings', () => {
+    const base = manifest();
+    expect(() =>
+      assertTranscriptBenchmarkFixtureManifest({
+        ...base,
+        entries: [
+          {
+            ...base.entries[0]!,
+            storageEncoding: 'hex' as TranscriptBenchmarkFixtureManifest['entries'][number]['storageEncoding'],
+          },
+        ],
+      }),
+    ).toThrow('benchmark fixture storageEncoding is invalid: case-one');
   });
 
   it('fails closed when the manifest and corpus case sets differ', () => {
