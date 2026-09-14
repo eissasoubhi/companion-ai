@@ -112,6 +112,8 @@ export async function startLiveAudioStream(
     if (stopped) return;
     try {
       options.onDegraded?.('write-failed', error);
+    } catch {
+      // Diagnostics callbacks must never escape into the realtime audio callback.
     } finally {
       void stop().catch(() => undefined);
     }
