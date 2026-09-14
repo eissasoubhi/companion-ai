@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { QuestionStream } from '@companion-ai/conversation';
+import type { VerifiedContextItem } from '@companion-ai/grounding';
 
 import { AnswerRuntime } from './answer-runtime.js';
 import { registerAudioIpcHandlers } from './audio-ipc.js';
@@ -20,12 +21,26 @@ import {
 } from './system-audio.js';
 import { TranscriptionIngress } from './transcription-ingress.js';
 import { TranscriptionRuntime } from './transcription-runtime.js';
+import { loadVerifiedContextFromEnv } from './verified-context.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
 function broadcast(channel: string, payload: unknown): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) window.webContents.send(channel, payload);
+  }
+}
+
+function createVerifiedContextProvider(): () => readonly VerifiedContextItem[] {
+  try {
+    const items = loadVerifiedContextFromEnv();
+    return () => items;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Verified context could not be loaded.';
+    console.error('Verified context rejected:', message);
+    return () => {
+      throw new Error(`Verified context is unavailable: ${message}`);
+    };
   }
 }
 
@@ -40,11 +55,10 @@ function registerIpcHandlers(): {
 
   const ingress = new TranscriptionIngress(registerAudioIpcHandlers());
   const questions = new QuestionStream();
+  const getVerifiedContextItems = createVerifiedContextProvider();
   const answers = new AnswerRuntime({
     createProvider: () => createOpenAIProviderFromEnv(),
-    // Verified context persistence/import is a separate P0 lane. Until it exists,
-    // generation receives no private context rather than unverified renderer data.
-    getContextItems: () => [],
+    getContextItems: getVerifiedContextItems,
     emit: (event) => broadcast('answer:event', event),
   });
   const transcription = new TranscriptionRuntime(ingress, (event) => {
