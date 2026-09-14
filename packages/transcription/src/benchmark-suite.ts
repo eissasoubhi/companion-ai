@@ -7,6 +7,7 @@ import {
 export interface TranscriptBenchmarkSuiteCandidate extends TranscriptBenchmarkCandidate {
   readonly corpusVersion: string;
   readonly fixtureSetId: string;
+  readonly fixtureFingerprintSha256: string;
 }
 
 export interface TranscriptBenchmarkSuiteResult {
@@ -16,12 +17,18 @@ export interface TranscriptBenchmarkSuiteResult {
   readonly providerIds: readonly string[];
   readonly corpusVersion: string | null;
   readonly fixtureSetId: string | null;
+  readonly fixtureFingerprintSha256: string | null;
   readonly sampleCount: number | null;
 }
 
 function normalizedNonEmpty(value: string): string | null {
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizedSha256(value: string): string | null {
+  const normalized = value.trim();
+  return /^[a-f0-9]{64}$/.test(normalized) ? normalized : null;
 }
 
 export function assessTranscriptBenchmarkSuite(
@@ -59,12 +66,14 @@ export function assessTranscriptBenchmarkSuite(
 
   let corpusVersion: string | null = null;
   let fixtureSetId: string | null = null;
+  let fixtureFingerprintSha256: string | null = null;
   let sampleCount: number | null = null;
 
   for (const candidate of requiredCandidates) {
     const providerId = candidate.report.providerId.trim() || '<unknown>';
     const candidateCorpusVersion = normalizedNonEmpty(candidate.corpusVersion);
     const candidateFixtureSetId = normalizedNonEmpty(candidate.fixtureSetId);
+    const candidateFixtureFingerprintSha256 = normalizedSha256(candidate.fixtureFingerprintSha256);
 
     if (!candidateCorpusVersion) {
       reasons.push(`${providerId}: corpusVersion must not be empty`);
@@ -86,6 +95,16 @@ export function assessTranscriptBenchmarkSuite(
       );
     }
 
+    if (!candidateFixtureFingerprintSha256) {
+      reasons.push(`${providerId}: fixtureFingerprintSha256 must be a lowercase SHA-256 digest`);
+    } else if (fixtureFingerprintSha256 === null) {
+      fixtureFingerprintSha256 = candidateFixtureFingerprintSha256;
+    } else if (candidateFixtureFingerprintSha256 !== fixtureFingerprintSha256) {
+      reasons.push(
+        `${providerId}: fixtureFingerprintSha256 ${candidateFixtureFingerprintSha256} does not match ${fixtureFingerprintSha256}`,
+      );
+    }
+
     if (sampleCount === null) {
       sampleCount = candidate.report.sampleCount;
     } else if (candidate.report.sampleCount !== sampleCount) {
@@ -102,6 +121,7 @@ export function assessTranscriptBenchmarkSuite(
     providerIds: normalizedRequiredProviderIds,
     corpusVersion,
     fixtureSetId,
+    fixtureFingerprintSha256,
     sampleCount,
   };
 }
