@@ -5,7 +5,7 @@ import {
   type LiveAudioStreamOptions,
 } from './live-audio-stream.js';
 
-export type CaptureSessionDegradedReason = 'track-ended' | 'write-failed';
+export type CaptureSessionDegradedReason = 'track-ended' | 'write-failed' | 'device-change';
 export type CaptureStartupStage =
   | 'microphone-capture'
   | 'remote-capture'
@@ -47,6 +47,7 @@ interface CaptureSessionDependencies {
   readonly startLiveAudioStream: (
     options: LiveAudioStreamOptions,
   ) => Promise<LiveAudioStreamHandle>;
+  readonly subscribeDeviceChange?: (listener: () => void) => () => void;
   readonly now?: () => number;
 }
 
@@ -60,6 +61,10 @@ function defaultDependencies(): CaptureSessionDependencies {
     startTranscription: (options) => window.companion.transcription.start(options),
     stopTranscription: () => window.companion.transcription.stop(),
     startLiveAudioStream: (options) => startLiveAudioStream(options),
+    subscribeDeviceChange: (listener) => {
+      navigator.mediaDevices.addEventListener('devicechange', listener);
+      return () => navigator.mediaDevices.removeEventListener('devicechange', listener);
+    },
     now: () => performance.now(),
   };
 }
@@ -69,9 +74,12 @@ function stopRawStream(stream: MediaStream | undefined): void {
   for (const track of stream.getTracks()) track.stop();
 }
 
+function hasLiveAudioTrack(stream: MediaStream | undefined): boolean {
+  return stream?.getAudioTracks().some((candidate) => candidate.readyState === 'live') ?? false;
+}
+
 function assertLiveAudioTrack(stream: MediaStream, source: LiveAudioSource): void {
-  const track = stream.getAudioTracks().find((candidate) => candidate.readyState === 'live');
-  if (!track) {
+  if (!hasLiveAudioTrack(stream)) {
     stopRawStream(stream);
     throw new Error(`No live ${source} audio track is available after capture.`);
   }
@@ -138,6 +146,7 @@ export async function startCaptureSession(
   let remoteStream: MediaStream | undefined;
   let localHandle: LiveAudioStreamHandle | undefined;
   let remoteHandle: LiveAudioStreamHandle | undefined;
+  let unsubscribeDeviceChange: (() => void) | undefined;
   let transcriptionStarted = false;
   let ready = false;
   let degradationHandled = false;
@@ -182,6 +191,15 @@ export async function startCaptureSession(
     if (stopping) return stopping;
 
     stopping = (async () => {
+      if (unsubscribeDeviceChange) {
+        try {
+          unsubscribeDeviceChange();
+        } catch {
+          // Listener removal must never prevent capture/transcription cleanup.
+        }
+        unsubscribeDeviceChange = undefined;
+      }
+
       const operations: Promise<unknown>[] = [];
 
       if (localHandle) {
@@ -256,6 +274,18 @@ export async function startCaptureSession(
         return stream;
       },
     );
+
+    if (dependencies.subscribeDeviceChange) {
+      unsubscribeDeviceChange = dependencies.subscribeDeviceChange(() => {
+        if (!hasLiveAudioTrack(localStream)) {
+          onDegraded('local', 'device-change');
+          return;
+        }
+        if (!hasLiveAudioTrack(remoteStream)) {
+          onDegraded('remote', 'device-change');
+        }
+      });
+    }
 
     const transcriptionOptions = options.language === undefined
       ? undefined
