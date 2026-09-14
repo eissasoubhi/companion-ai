@@ -26,6 +26,14 @@ declare global {
     readonly action?: string | undefined;
   }
 
+  interface VerifiedContextStatus {
+    readonly state: 'ready' | 'empty' | 'error';
+    readonly totalItemCount: number;
+    readonly verifiedItemCount: number;
+    readonly message: string;
+    readonly action?: string | undefined;
+  }
+
   interface RendererAudioChunk {
     readonly sessionId: string;
     readonly source: 'local' | 'remote';
@@ -135,6 +143,9 @@ declare global {
       };
       readonly network: {
         runDiagnostic(): Promise<NetworkDiagnosticResult>;
+      };
+      readonly context: {
+        getStatus(): Promise<VerifiedContextStatus>;
       };
       readonly audio: {
         writeChunk(chunk: RendererAudioChunk): Promise<void>;

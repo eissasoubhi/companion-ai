@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('companion', {
   network: {
     runDiagnostic: () => ipcRenderer.invoke('network:run-diagnostic'),
   },
+  context: {
+    getStatus: () => ipcRenderer.invoke('context:get-status'),
+  },
   audio: {
     writeChunk: (chunk: unknown) => ipcRenderer.invoke('audio:write-chunk', chunk),
   },
