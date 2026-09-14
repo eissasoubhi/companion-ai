@@ -39,7 +39,7 @@ function createVerifiedContextProvider(): () => readonly VerifiedContextItem[] {
     const message = error instanceof Error ? error.message : 'Verified context could not be loaded.';
     console.error('Verified context rejected:', message);
     return () => {
-      throw new Error(`Verified context is unavailable: ${message}`);
+      throw new Error('Configured verified context is unavailable.');
     };
   }
 }
