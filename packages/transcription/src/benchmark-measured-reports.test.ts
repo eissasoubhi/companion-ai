@@ -4,6 +4,7 @@ import type { TranscriptBenchmarkBatchResult } from './benchmark-batch.js';
 import { measuredReportsFromTranscriptBenchmarkBatch } from './benchmark-measured-reports.js';
 
 const fingerprint = 'a'.repeat(64);
+const latencySummary = { count: 1, p50Ms: 1, p95Ms: 1, maxMs: 1, meanMs: 1 } as const;
 
 function batch(overrides: Partial<TranscriptBenchmarkBatchResult> = {}): TranscriptBenchmarkBatchResult {
   const report = {
@@ -12,18 +13,27 @@ function batch(overrides: Partial<TranscriptBenchmarkBatchResult> = {}): Transcr
     accuracy: {
       sampleCount: 1,
       referenceWordCount: 1,
-      wordErrorCount: 0,
       wordErrorRate: 0,
       keyTermCount: 1,
       keyTermMatches: 1,
       keyTermAccuracy: 1,
-      samples: [],
+      samples: [
+        {
+          id: 'case-1',
+          wordErrorRate: 0,
+          keyTermAccuracy: 1,
+          keyTermCount: 1,
+          keyTermMatches: 1,
+          referenceWordCount: 1,
+        },
+      ],
     },
     latency: {
-      partial: { count: 1, p50Ms: 1, p95Ms: 1, maxMs: 1, meanMs: 1 },
-      final: { count: 1, p50Ms: 1, p95Ms: 1, maxMs: 1, meanMs: 1 },
-      local: { count: 1, p50Ms: 1, p95Ms: 1, maxMs: 1, meanMs: 1 },
-      remote: { count: 1, p50Ms: 1, p95Ms: 1, maxMs: 1, meanMs: 1 },
+      all: latencySummary,
+      partial: latencySummary,
+      final: latencySummary,
+      local: latencySummary,
+      remote: latencySummary,
     },
   } as const;
 
