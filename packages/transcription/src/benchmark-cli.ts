@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import WebSocket, { type RawData } from 'ws';
 
+import { loadBenchmarkAudioEvidenceFile } from './benchmark-audio-evidence-loader.js';
 import { executeTranscriptBenchmarkBatch, serializeTranscriptBenchmarkBatchArtifact } from './benchmark-batch.js';
 import { transcriptBenchmarkCorpus } from './benchmark-corpus.js';
 import { loadTranscriptBenchmarkFixtureSet } from './benchmark-fixture-loader.js';
@@ -21,6 +22,7 @@ export interface BenchmarkCliEnvironment {
 
 export interface BenchmarkCliOptions {
   readonly manifestPath: string;
+  readonly evidencePath: string;
   readonly outputPath: string;
   readonly finalTimeoutMs?: number | undefined;
 }
@@ -151,9 +153,9 @@ export function createLiveBenchmarkProviders(
 }
 
 export function parseBenchmarkCliArgs(args: readonly string[]): BenchmarkCliOptions {
-  const [manifestPath, outputPath, ...rest] = args;
-  if (!manifestPath || !outputPath || rest.length > 1) {
-    throw new Error('usage: benchmark:stt <manifest.json> <output.json> [final-timeout-ms]');
+  const [manifestPath, evidencePath, outputPath, ...rest] = args;
+  if (!manifestPath || !evidencePath || !outputPath || rest.length > 1) {
+    throw new Error('usage: benchmark:stt <manifest.json> <audio-evidence.json> <output.json> [final-timeout-ms]');
   }
 
   const finalTimeoutMs = rest[0] === undefined ? undefined : Number(rest[0]);
@@ -163,6 +165,7 @@ export function parseBenchmarkCliArgs(args: readonly string[]): BenchmarkCliOpti
 
   return {
     manifestPath: resolve(manifestPath),
+    evidencePath: resolve(evidencePath),
     outputPath: resolve(outputPath),
     ...(finalTimeoutMs === undefined ? {} : { finalTimeoutMs }),
   };
@@ -173,7 +176,8 @@ export async function runBenchmarkCli(
   environment: BenchmarkCliEnvironment = process.env,
 ): Promise<void> {
   const caseIds = transcriptBenchmarkCorpus.map((sample) => sample.id);
-  const fixtureSet = await loadTranscriptBenchmarkFixtureSet(options.manifestPath, caseIds);
+  const audioEvidence = await loadBenchmarkAudioEvidenceFile(options.evidencePath);
+  const fixtureSet = await loadTranscriptBenchmarkFixtureSet(options.manifestPath, caseIds, { audioEvidence });
   const format = assertBenchmarkProviderAudioFormat(fixtureSet.manifest);
   const providers = createLiveBenchmarkProviders(environment, format);
   const result = await executeTranscriptBenchmarkBatch(providers, transcriptBenchmarkCorpus, fixtureSet, {

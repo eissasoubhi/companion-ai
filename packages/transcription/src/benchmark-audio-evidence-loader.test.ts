@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { BenchmarkAudioEvidence } from './benchmark-audio-evidence.js';
+import { loadBenchmarkAudioEvidenceFile } from './benchmark-audio-evidence-loader.js';
 import { loadTranscriptBenchmarkFixtureSet } from './benchmark-fixture-loader.js';
 import type { TranscriptBenchmarkFixtureManifest } from './benchmark-fixture-manifest.js';
 
@@ -16,6 +17,7 @@ afterEach(async () => {
 });
 
 async function createFixture(): Promise<{
+  root: string;
   manifestPath: string;
   evidence: BenchmarkAudioEvidence;
 }> {
@@ -44,6 +46,7 @@ async function createFixture(): Promise<{
   await writeFile(manifestPath, JSON.stringify(manifest));
 
   return {
+    root,
     manifestPath,
     evidence: {
       corpusCaseId: 'case-one',
@@ -56,6 +59,31 @@ async function createFixture(): Promise<{
     },
   };
 }
+
+describe('benchmark audio evidence file loader', () => {
+  it('loads structurally valid evidence within the byte bound', async () => {
+    const { root, evidence } = await createFixture();
+    const evidencePath = join(root, 'evidence.json');
+    await writeFile(evidencePath, JSON.stringify([evidence]));
+
+    await expect(loadBenchmarkAudioEvidenceFile(evidencePath)).resolves.toEqual([evidence]);
+  });
+
+  it('rejects malformed, invalid-field and oversized evidence before benchmark execution', async () => {
+    const { root, evidence } = await createFixture();
+    const malformedPath = join(root, 'malformed.json');
+    await writeFile(malformedPath, '{');
+    await expect(loadBenchmarkAudioEvidenceFile(malformedPath)).rejects.toThrow(/not valid JSON/);
+
+    const invalidPath = join(root, 'invalid.json');
+    await writeFile(invalidPath, JSON.stringify([{ ...evidence, consentRecorded: 'no' }]));
+    await expect(loadBenchmarkAudioEvidenceFile(invalidPath)).rejects.toThrow(/invalid fields/);
+
+    const oversizedPath = join(root, 'oversized.json');
+    await writeFile(oversizedPath, JSON.stringify([evidence]));
+    await expect(loadBenchmarkAudioEvidenceFile(oversizedPath, 1)).rejects.toThrow(/exceeds byte limit/);
+  });
+});
 
 describe('benchmark audio evidence fixture binding', () => {
   it('loads only when evidence path and digest match the verified fixture bytes', async () => {
