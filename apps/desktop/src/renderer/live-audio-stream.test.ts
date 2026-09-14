@@ -151,6 +151,58 @@ describe('startLiveAudioStream', () => {
     await expect(handle.stop()).resolves.toBeUndefined();
   });
 
+  it('fails closed when normalization or frame encoding throws during live processing', async () => {
+    const harness = createHarness();
+    const writes: RendererAudioChunk[] = [];
+    const onDegraded = vi.fn();
+    const dependencies = dependenciesFor(harness, writes);
+    dependencies.now = () => Number.NaN;
+
+    await startLiveAudioStream(
+      {
+        stream: harness.stream,
+        source: 'local',
+        sessionId: 'session-1',
+        onDegraded,
+      },
+      dependencies,
+    );
+
+    harness.emit([new Float32Array(320).fill(0.25)]);
+    await Promise.resolve();
+
+    expect(onDegraded).toHaveBeenCalledOnce();
+    expect(onDegraded.mock.calls[0]?.[0]).toBe('write-failed');
+    expect(onDegraded.mock.calls[0]?.[1]).toBeInstanceOf(RangeError);
+    expect(writes).toHaveLength(0);
+    expect(harness.track.stop).toHaveBeenCalledOnce();
+  });
+
+  it('still stops capture if the degradation callback itself throws', async () => {
+    const harness = createHarness();
+    const dependencies = dependenciesFor(harness, []);
+    dependencies.now = () => Number.NaN;
+    const onDegraded = vi.fn(() => {
+      throw new Error('telemetry unavailable');
+    });
+
+    await startLiveAudioStream(
+      {
+        stream: harness.stream,
+        source: 'remote',
+        sessionId: 'session-1',
+        onDegraded,
+      },
+      dependencies,
+    );
+
+    expect(() => harness.emit([new Float32Array(320)])).not.toThrow();
+    await Promise.resolve();
+
+    expect(onDegraded).toHaveBeenCalledOnce();
+    expect(harness.track.stop).toHaveBeenCalledOnce();
+  });
+
   it('rejects streams without a live audio track', async () => {
     const harness = createHarness();
     Object.defineProperty(harness.track, 'readyState', { value: 'ended' });
