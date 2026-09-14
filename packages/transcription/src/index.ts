@@ -3,6 +3,7 @@ export * from './benchmark-channel-finalization.js';
 export * from './benchmark-channel-false-finalization.js';
 export * from './benchmark-channel-reconnect.js';
 export * from './benchmark-controlled-disconnect.js';
+export * from './benchmark-corpus-readiness.js';
 export * from './benchmark-corpus.js';
 export * from './benchmark-evidence-readiness.js';
 export * from './benchmark-execution.js';
