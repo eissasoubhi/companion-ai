@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { QuestionStream } from '@companion-ai/conversation';
-import type { VerifiedContextItem } from '@companion-ai/grounding';
 
 import { AnswerRuntime } from './answer-runtime.js';
 import { registerAudioIpcHandlers } from './audio-ipc.js';
@@ -21,26 +20,13 @@ import {
 } from './system-audio.js';
 import { TranscriptionIngress } from './transcription-ingress.js';
 import { TranscriptionRuntime } from './transcription-runtime.js';
-import { loadVerifiedContextFromEnv } from './verified-context.js';
+import { createVerifiedContextRuntime } from './verified-context-runtime.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
 function broadcast(channel: string, payload: unknown): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) window.webContents.send(channel, payload);
-  }
-}
-
-function createVerifiedContextProvider(): () => readonly VerifiedContextItem[] {
-  try {
-    const items = loadVerifiedContextFromEnv();
-    return () => items;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Verified context could not be loaded.';
-    console.error('Verified context rejected:', message);
-    return () => {
-      throw new Error('Configured verified context is unavailable.');
-    };
   }
 }
 
@@ -55,10 +41,12 @@ function registerIpcHandlers(): {
 
   const ingress = new TranscriptionIngress(registerAudioIpcHandlers());
   const questions = new QuestionStream();
-  const getVerifiedContextItems = createVerifiedContextProvider();
+  const verifiedContext = createVerifiedContextRuntime();
+  ipcMain.handle('context:get-status', () => verifiedContext.status);
+
   const answers = new AnswerRuntime({
     createProvider: () => createOpenAIProviderFromEnv(),
-    getContextItems: getVerifiedContextItems,
+    getContextItems: verifiedContext.getItems,
     emit: (event) => broadcast('answer:event', event),
   });
   const transcription = new TranscriptionRuntime(ingress, (event) => {
