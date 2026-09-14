@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 
 import type { GroundingSourceKind } from '@companion-ai/contracts';
 import type { ContextVerificationStatus, VerifiedContextItem } from '@companion-ai/grounding';
@@ -122,6 +122,31 @@ export function parseVerifiedContextDocument(value: unknown): VerifiedContextDoc
   return { version: 1, items };
 }
 
+function readBoundedUtf8File(filePath: string, maxFileBytes: number): string {
+  const descriptor = openSync(filePath, 'r');
+  try {
+    const stats = fstatSync(descriptor);
+    if (!stats.isFile()) throw new Error('Verified context path must point to a regular file.');
+    if (stats.size > maxFileBytes) {
+      throw new Error(`Verified context file exceeds the ${maxFileBytes} byte limit.`);
+    }
+
+    const buffer = Buffer.allocUnsafe(maxFileBytes + 1);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const bytesRead = readSync(descriptor, buffer, offset, buffer.length - offset, null);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset > maxFileBytes) {
+      throw new Error(`Verified context file exceeds the ${maxFileBytes} byte limit.`);
+    }
+    return buffer.subarray(0, offset).toString('utf8');
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
 export function loadVerifiedContextFromFile(
   filePath: string,
   maxFileBytes = DEFAULT_MAX_FILE_BYTES,
@@ -130,13 +155,7 @@ export function loadVerifiedContextFromFile(
     throw new Error('maxFileBytes must be a positive safe integer.');
   }
 
-  const stats = statSync(filePath);
-  if (!stats.isFile()) throw new Error('Verified context path must point to a regular file.');
-  if (stats.size > maxFileBytes) {
-    throw new Error(`Verified context file exceeds the ${maxFileBytes} byte limit.`);
-  }
-
-  const raw = readFileSync(filePath, 'utf8');
+  const raw = readBoundedUtf8File(filePath, maxFileBytes);
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw) as unknown;
