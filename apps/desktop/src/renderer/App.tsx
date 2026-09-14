@@ -65,6 +65,33 @@ function systemAudioDescription(
   return result?.message ?? 'The other side of the conversation';
 }
 
+function systemAudioEvidenceDetail(result: SystemAudioDiagnosticResult | null): string | undefined {
+  if (!result) return undefined;
+
+  const capability = result.capability === 'supported'
+    ? 'Capability: supported'
+    : result.capability === 'unsupported'
+      ? 'Capability: unsupported'
+      : 'Capability: unknown';
+
+  switch (result.capture) {
+    case 'verified':
+      return `${capability} · Capture: opened · Signal: verified`;
+    case 'no-signal':
+      return `${capability} · Capture: opened · Signal: not detected`;
+    case 'no-audio-track':
+      return `${capability} · Capture: opened without a live audio track`;
+    case 'denied':
+      return `${capability} · Capture: denied or cancelled`;
+    case 'unavailable':
+      return `${capability} · Capture: no shareable source available`;
+    case 'not-attempted':
+      return `${capability} · Capture: not attempted`;
+    case 'failed':
+      return `${capability} · Capture: diagnostic failed`;
+  }
+}
+
 export function App() {
   const [microphoneState, setMicrophoneState] =
     useState<MicrophoneDiagnosticState>('idle');
@@ -118,10 +145,7 @@ export function App() {
         label: 'Remote audio',
         description: systemAudioDescription(systemAudioState, systemAudioResult),
         state: systemAudioState === 'idle' ? 'pending' : systemAudioState,
-        detail:
-          systemAudioResult?.state === 'blocked' && systemAudioResult.signalDetected === false
-            ? 'A live signal is required here because macOS can expose an audio track that contains no usable samples.'
-            : undefined,
+        detail: systemAudioEvidenceDetail(systemAudioResult),
         action: systemAudioResult?.action,
       },
       {
@@ -212,6 +236,8 @@ export function App() {
             setSystemAudioState('blocked');
             setSystemAudioResult({
               state: 'blocked',
+              capability: 'supported',
+              capture: 'failed',
               signalDetected: false,
               message: 'Remote audio capture stopped during the live session.',
               action: 'Run diagnostics again and reselect a source with system audio.',
