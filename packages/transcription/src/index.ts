@@ -1,6 +1,7 @@
 export * from './benchmark-audio-evidence.js';
 export * from './benchmark-audio-evidence-loader.js';
 export * from './benchmark-batch.js';
+export * from './benchmark-batch-readiness.js';
 export * from './benchmark-channel-finalization.js';
 export * from './benchmark-channel-false-finalization.js';
 export * from './benchmark-channel-reconnect.js';
