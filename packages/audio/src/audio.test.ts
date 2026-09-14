@@ -81,6 +81,24 @@ describe('FixedFramePcm16Encoder', () => {
     const frames = encoder.push(new Float32Array(10), 2_000);
     expect(frames[0]).toMatchObject({ sequence: 0, startedAtMs: 2_000 });
   });
+
+  it('rejects configurations that could emit a PCM16 frame larger than the IPC limit', () => {
+    expect(() => new FixedFramePcm16Encoder({
+      sampleRateHz: 16_000,
+      frameDurationMs: 2_048.0625,
+    })).toThrow('PCM16 frame exceeds the 65536 byte limit.');
+  });
+
+  it('accepts the exact 64 KiB PCM16 frame boundary', () => {
+    const encoder = new FixedFramePcm16Encoder({
+      sampleRateHz: 16_000,
+      frameDurationMs: 2_048,
+    });
+
+    const frames = encoder.push(new Float32Array(32_768), 1_000);
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.data).toHaveLength(65_536);
+  });
 });
 
 describe('BoundedQueue', () => {
