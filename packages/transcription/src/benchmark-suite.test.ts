@@ -97,10 +97,7 @@ describe('assessTranscriptBenchmarkSuite', () => {
 
   it('fails closed when providers are benchmarked against different fixture sets', () => {
     const result = assessTranscriptBenchmarkSuite(
-      [
-        candidate('deepgram'),
-        candidate('assemblyai', { fixtureSetId: 'different-audio' }),
-      ],
+      [candidate('deepgram'), candidate('assemblyai', { fixtureSetId: 'different-audio' })],
       ['deepgram', 'assemblyai'],
     );
 
@@ -113,10 +110,7 @@ describe('assessTranscriptBenchmarkSuite', () => {
   it('fails closed when fixture bytes differ despite matching fixture set ids', () => {
     const differentFingerprint = 'b'.repeat(64);
     const result = assessTranscriptBenchmarkSuite(
-      [
-        candidate('deepgram'),
-        candidate('assemblyai', { fixtureFingerprintSha256: differentFingerprint }),
-      ],
+      [candidate('deepgram'), candidate('assemblyai', { fixtureFingerprintSha256: differentFingerprint })],
       ['deepgram', 'assemblyai'],
     );
 
@@ -127,15 +121,17 @@ describe('assessTranscriptBenchmarkSuite', () => {
   });
 
   it('rejects malformed or non-canonical fixture fingerprints', () => {
-    const result = assessTranscriptBenchmarkSuite(
-      [candidate('deepgram', { fixtureFingerprintSha256: 'A'.repeat(64) })],
-      ['deepgram'],
-    );
+    for (const invalidFingerprint of ['A'.repeat(64), ` ${fixtureFingerprintSha256}`]) {
+      const result = assessTranscriptBenchmarkSuite(
+        [candidate('deepgram', { fixtureFingerprintSha256: invalidFingerprint })],
+        ['deepgram'],
+      );
 
-    expect(result.ready).toBe(false);
-    expect(result.reasons).toContain(
-      'deepgram: fixtureFingerprintSha256 must be a lowercase SHA-256 digest',
-    );
+      expect(result.ready).toBe(false);
+      expect(result.reasons).toContain(
+        'deepgram: fixtureFingerprintSha256 must be a canonical lowercase SHA-256 digest',
+      );
+    }
   });
 
   it('fails closed when corpus versions differ', () => {
