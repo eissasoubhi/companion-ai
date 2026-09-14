@@ -84,6 +84,26 @@ describe('loadTranscriptBenchmarkFixtureSet', () => {
     expect(chunks.every((chunk) => chunk.data.byteLength % 2 === 0)).toBe(true);
   });
 
+  it('rejects a fixture before reading it when it exceeds the configured byte limit', async () => {
+    const audio = new Uint8Array(10);
+    const manifestPath = await createFixtureSet(audio);
+
+    await expect(
+      loadTranscriptBenchmarkFixtureSet(manifestPath, ['case-one'], { maxFixtureBytes: 8 }),
+    ).rejects.toThrow('benchmark fixture exceeds byte limit: case-one (10 > 8)');
+  });
+
+  it('rejects invalid fixture byte limits', async () => {
+    const manifestPath = await createFixtureSet(new Uint8Array([1, 2, 3, 4]));
+
+    await expect(
+      loadTranscriptBenchmarkFixtureSet(manifestPath, undefined, { maxFixtureBytes: 0 }),
+    ).rejects.toThrow('maxFixtureBytes must be a positive safe integer');
+    await expect(
+      loadTranscriptBenchmarkFixtureSet(manifestPath, undefined, { maxFixtureBytes: Number.POSITIVE_INFINITY }),
+    ).rejects.toThrow('maxFixtureBytes must be a positive safe integer');
+  });
+
   it('fails closed when fixture bytes do not match the manifest hash', async () => {
     const manifestPath = await createFixtureSet(new Uint8Array([1, 2, 3, 4]));
     await writeFile(join(manifestPath, '..', 'case-one.pcm'), new Uint8Array([9, 9, 9, 9]));
