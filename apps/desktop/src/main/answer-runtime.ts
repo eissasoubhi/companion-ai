@@ -64,6 +64,7 @@ export class AnswerRuntime {
           questionId: question.id,
           question: question.text,
           length: 'normal',
+          triggeredAtMs: question.detectedAtMs,
           contextItems: this.#dependencies.getContextItems(),
         },
         this.#dependencies.emit,
