@@ -14,6 +14,7 @@ export interface TranscriptBenchmarkMeasuredReport {
   readonly benchmarkRunId: string;
   readonly corpusVersion: string;
   readonly fixtureSetId: string;
+  readonly fixtureFingerprintSha256: string;
   readonly report: TranscriptBenchmarkRunReport;
 }
 
@@ -86,6 +87,7 @@ export function assessTranscriptBenchmarkEvidenceReadiness(
       operational: artifact.evidence,
       corpusVersion,
       fixtureSetId,
+      fixtureFingerprintSha256: measured.fixtureFingerprintSha256,
     });
   }
 

@@ -16,7 +16,14 @@ const corpus = [
   },
 ] as const satisfies readonly TranscriptBenchmarkCorpusCase[];
 
-function measured(providerId: string, benchmarkRunId = 'run-1', corpusVersion = 'corpus-v1') {
+const fixtureFingerprintSha256 = 'a'.repeat(64);
+
+function measured(
+  providerId: string,
+  benchmarkRunId = 'run-1',
+  corpusVersion = 'corpus-v1',
+  fixtureFingerprint = fixtureFingerprintSha256,
+) {
   const report = summarizeTranscriptBenchmarkRun({
     providerId,
     corpus,
@@ -34,7 +41,13 @@ function measured(providerId: string, benchmarkRunId = 'run-1', corpusVersion = 
     ],
   });
 
-  return { benchmarkRunId, corpusVersion, fixtureSetId: 'accuracy-v1', report } as const;
+  return {
+    benchmarkRunId,
+    corpusVersion,
+    fixtureSetId: 'accuracy-v1',
+    fixtureFingerprintSha256: fixtureFingerprint,
+    report,
+  } as const;
 }
 
 function bundle(benchmarkRunId = 'run-1', corpusVersion = 'corpus-v1'): TranscriptBenchmarkOperationalBundle {
@@ -65,7 +78,7 @@ function bundle(benchmarkRunId = 'run-1', corpusVersion = 'corpus-v1'): Transcri
 }
 
 describe('assessTranscriptBenchmarkEvidenceReadiness', () => {
-  it('accepts evidence only when provider, run and corpus provenance align', () => {
+  it('accepts evidence only when provider, run, corpus and fixture provenance align', () => {
     const result = assessTranscriptBenchmarkEvidenceReadiness(
       [measured('deepgram')],
       bundle(),
@@ -74,6 +87,7 @@ describe('assessTranscriptBenchmarkEvidenceReadiness', () => {
 
     expect(result.ready).toBe(true);
     expect(result.reasons).toEqual([]);
+    expect(result.fixtureFingerprintSha256).toBe(fixtureFingerprintSha256);
   });
 
   it('fails closed when operational evidence belongs to another benchmark run', () => {
@@ -111,6 +125,27 @@ describe('assessTranscriptBenchmarkEvidenceReadiness', () => {
     expect(result.reasons).toContain(
       'deepgram: operational corpusVersion corpus-v1 does not match corpus-v2',
     );
+  });
+
+  it('fails closed when accuracy reports use different exact fixture bytes', () => {
+    const result = assessTranscriptBenchmarkEvidenceReadiness(
+      [measured('deepgram'), measured('openai', 'run-1', 'corpus-v1', 'b'.repeat(64))],
+      {
+        ...bundle(),
+        artifacts: [
+          ...bundle().artifacts,
+          {
+            ...bundle().artifacts[0]!,
+            providerId: 'openai',
+            evidence: { ...bundle().artifacts[0]!.evidence, providerId: 'openai' },
+          },
+        ],
+      },
+      ['deepgram', 'openai'],
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons.some((reason) => reason.includes('fixtureFingerprintSha256'))).toBe(true);
   });
 
   it('fails closed when a required provider has no operational artifact', () => {
