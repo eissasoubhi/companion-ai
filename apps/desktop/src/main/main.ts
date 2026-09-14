@@ -1,11 +1,12 @@
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { QuestionStream } from '@companion-ai/conversation';
 
 import { AnswerRuntime } from './answer-runtime.js';
 import { registerAudioIpcHandlers } from './audio-ipc.js';
+import { createTrustedIpcSenderGuard } from './ipc-security.js';
 import { createManualQuestion, parseManualQuestionRequest } from './manual-question.js';
 import {
   configureMediaPermissionHandlers,
@@ -23,6 +24,8 @@ import { TranscriptionRuntime } from './transcription-runtime.js';
 import { createVerifiedContextRuntime } from './verified-context-runtime.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
+const rendererEntryPath = join(currentDir, '../renderer/index.html');
+const assertTrustedIpcSender = createTrustedIpcSenderGuard(pathToFileURL(rendererEntryPath).href);
 
 function broadcast(channel: string, payload: unknown): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -34,15 +37,30 @@ function registerIpcHandlers(): {
   readonly transcription: TranscriptionRuntime;
   readonly answers: AnswerRuntime;
 } {
-  ipcMain.handle('microphone:get-permission', () => getMicrophonePermissionStatus());
-  ipcMain.handle('microphone:request-permission', () => requestMicrophonePermission());
-  ipcMain.handle('system-audio:get-capability', () => getSystemAudioCapability());
-  ipcMain.handle('network:run-diagnostic', () => runNetworkDiagnostic());
+  ipcMain.handle('microphone:get-permission', (event) => {
+    assertTrustedIpcSender(event);
+    return getMicrophonePermissionStatus();
+  });
+  ipcMain.handle('microphone:request-permission', (event) => {
+    assertTrustedIpcSender(event);
+    return requestMicrophonePermission();
+  });
+  ipcMain.handle('system-audio:get-capability', (event) => {
+    assertTrustedIpcSender(event);
+    return getSystemAudioCapability();
+  });
+  ipcMain.handle('network:run-diagnostic', (event) => {
+    assertTrustedIpcSender(event);
+    return runNetworkDiagnostic();
+  });
 
-  const ingress = new TranscriptionIngress(registerAudioIpcHandlers());
+  const ingress = new TranscriptionIngress(registerAudioIpcHandlers(assertTrustedIpcSender));
   const questions = new QuestionStream();
   const verifiedContext = createVerifiedContextRuntime();
-  ipcMain.handle('context:get-status', () => verifiedContext.status);
+  ipcMain.handle('context:get-status', (event) => {
+    assertTrustedIpcSender(event);
+    return verifiedContext.status;
+  });
 
   const answers = new AnswerRuntime({
     createProvider: () => createOpenAIProviderFromEnv(),
@@ -61,7 +79,8 @@ function registerIpcHandlers(): {
     }
   });
 
-  ipcMain.handle('transcription:start', (_event, options: unknown) => {
+  ipcMain.handle('transcription:start', (event, options: unknown) => {
+    assertTrustedIpcSender(event);
     const language =
       typeof options === 'object' && options !== null &&
       'language' in options && typeof options.language === 'string'
@@ -69,7 +88,8 @@ function registerIpcHandlers(): {
         : undefined;
     return transcription.start(language === undefined ? {} : { language });
   });
-  ipcMain.handle('transcription:stop', async () => {
+  ipcMain.handle('transcription:stop', async (event) => {
+    assertTrustedIpcSender(event);
     answers.stop();
     try {
       await transcription.stop();
@@ -77,7 +97,8 @@ function registerIpcHandlers(): {
       questions.reset();
     }
   });
-  ipcMain.handle('answer:ask', async (_event, payload: unknown) => {
+  ipcMain.handle('answer:ask', async (event, payload: unknown) => {
+    assertTrustedIpcSender(event);
     const request = parseManualQuestionRequest(payload);
     const question = createManualQuestion(request, transcription.activeSessionId);
     broadcast('question:event', question);
@@ -107,7 +128,7 @@ function createMainWindow(): BrowserWindow {
   window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.once('ready-to-show', () => window.show());
 
-  void window.loadFile(join(currentDir, '../renderer/index.html'));
+  void window.loadFile(rendererEntryPath);
 
   return window;
 }

@@ -24,6 +24,10 @@ function validChunk(source: 'local' | 'remote' = 'local') {
   } as const;
 }
 
+function trustedGuard() {
+  return vi.fn();
+}
+
 describe('audio IPC ingress', () => {
   beforeEach(() => {
     handle.mockReset();
@@ -51,8 +55,23 @@ describe('audio IPC ingress', () => {
     expect(() => parseAudioIpcChunk(payload)).toThrow(message);
   });
 
+  it('authorizes the sender before parsing or forwarding audio', async () => {
+    const guard = vi.fn(() => {
+      throw new Error('untrusted');
+    });
+    const sink = { writeAudio: vi.fn(async () => undefined) };
+    const controller = registerAudioIpcHandlers(guard);
+    controller.setSink(sink);
+    const handler = handle.mock.calls[0]?.[1] as (event: unknown, raw: unknown) => Promise<void>;
+    const event = { senderFrame: { url: 'https://example.com' } };
+
+    await expect(handler(event, validChunk())).rejects.toThrow('untrusted');
+    expect(guard).toHaveBeenCalledWith(event);
+    expect(sink.writeAudio).not.toHaveBeenCalled();
+  });
+
   it('rejects writes while no transcription sink is active', async () => {
-    registerAudioIpcHandlers();
+    registerAudioIpcHandlers(trustedGuard());
     expect(handle).toHaveBeenCalledOnce();
     const handler = handle.mock.calls[0]?.[1] as (_event: unknown, raw: unknown) => Promise<void>;
 
@@ -61,7 +80,7 @@ describe('audio IPC ingress', () => {
 
   it('keeps local and remote in-flight limits independent', async () => {
     const pending: Array<() => void> = [];
-    const controller = registerAudioIpcHandlers();
+    const controller = registerAudioIpcHandlers(trustedGuard());
     controller.setSink({
       writeAudio: () => new Promise<void>((resolve) => pending.push(resolve)),
     });
