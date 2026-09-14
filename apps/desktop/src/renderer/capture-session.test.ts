@@ -7,12 +7,21 @@ import type {
   LiveAudioStreamOptions,
 } from './live-audio-stream.js';
 
-function createStream(label: string) {
+function createStream(
+  label: string,
+  options: { readonly audio?: boolean; readonly readyState?: MediaStreamTrackState } = {},
+) {
   const stop = vi.fn();
-  const track = { stop } as unknown as MediaStreamTrack;
+  const track = {
+    kind: 'audio',
+    readyState: options.readyState ?? 'live',
+    stop,
+  } as unknown as MediaStreamTrack;
+  const tracks = options.audio === false ? [] : [track];
   const stream = {
     id: label,
-    getTracks: () => [track],
+    getTracks: () => tracks,
+    getAudioTracks: () => tracks,
   } as unknown as MediaStream;
   return { stream, stop };
 }
@@ -71,6 +80,35 @@ describe('startCaptureSession', () => {
     expect(session.sessionId).toBe('session-1');
 
     await session.stop();
+  });
+
+  it('fails before transcription when microphone capture has no live audio track', async () => {
+    const harness = createDependencies();
+    const noAudio = createStream('local-without-audio', { audio: false });
+    harness.dependencies.getUserMedia.mockResolvedValueOnce(noAudio.stream);
+
+    await expect(startCaptureSession({}, harness.dependencies)).rejects.toThrow(
+      'No live local audio track is available after capture.',
+    );
+
+    expect(harness.dependencies.getDisplayMedia).not.toHaveBeenCalled();
+    expect(harness.dependencies.startTranscription).not.toHaveBeenCalled();
+    expect(harness.dependencies.startLiveAudioStream).not.toHaveBeenCalled();
+  });
+
+  it('fails before transcription when system capture returns no live audio track', async () => {
+    const harness = createDependencies();
+    const endedRemote = createStream('remote-ended', { readyState: 'ended' });
+    harness.dependencies.getDisplayMedia.mockResolvedValueOnce(endedRemote.stream);
+
+    await expect(startCaptureSession({}, harness.dependencies)).rejects.toThrow(
+      'No live remote audio track is available after capture.',
+    );
+
+    expect(harness.local.stop).toHaveBeenCalledOnce();
+    expect(endedRemote.stop).toHaveBeenCalledOnce();
+    expect(harness.dependencies.startTranscription).not.toHaveBeenCalled();
+    expect(harness.dependencies.startLiveAudioStream).not.toHaveBeenCalled();
   });
 
   it('emits bounded startup timing for every successful stage', async () => {
