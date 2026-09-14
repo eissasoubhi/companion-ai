@@ -5,7 +5,7 @@ This fixture set exists to exercise the live operational STT scenarios without s
 ## Provenance
 
 - Audio is synthetic speech generated locally with eSpeak 1.48.15.
-- Source phrase: `How would you`.
+- Source phrase: `Hello.`.
 - The generated WAV was normalized with FFmpeg 7.1.5 to mono 16 kHz signed 16-bit little-endian PCM.
 - The PCM bytes were gzip-compressed and base64-encoded only so the fixture can be stored as text. Runtime hashing is performed on the decoded PCM, not the stored text.
 - No user recording, interview recording, credential, or other personal data is present.
@@ -13,16 +13,16 @@ This fixture set exists to exercise the live operational STT scenarios without s
 Reference generation flow:
 
 ```sh
-espeak -v en-us -s 220 -w pause-before.wav 'How would you'
-ffmpeg -i pause-before.wav -ac 1 -ar 16000 -f s16le pause-before.pcm
-gzip -9 -c pause-before.pcm | base64 > pause-before.pcm.gz.b64
-sha256sum pause-before.pcm
+espeak -v en-us -s 250 -w hello.wav 'Hello.'
+ffmpeg -i hello.wav -ac 1 -ar 16000 -f s16le hello.pcm
+gzip -9 -c hello.pcm | base64 -w0 > pause-before.pcm.gz.b64
+sha256sum hello.pcm
 ```
 
 Decoded PCM SHA-256:
 
 ```text
-82d8b203020b95afb71502f988610e0d64bb088b362017eeb73eb4508b132447
+0739a241f17316e1fa97079b5016298f9c5d8f32683d1d22b1681b9cc867c1ce
 ```
 
 ## Scenario mapping
