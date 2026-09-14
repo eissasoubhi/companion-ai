@@ -45,6 +45,7 @@ export type CaptureValidationMatrix = {
 const MAX_STARTUP_LATENCY_MS = 30_000;
 const MAX_NOTES_LENGTH = 2_000;
 const MAX_VERSION_LENGTH = 128;
+const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -63,11 +64,17 @@ function requireString(value: unknown, field: string, maxLength = MAX_VERSION_LE
   return trimmed;
 }
 
-function requireRecordedAt(value: unknown): string {
+function requireRecordedAt(value: unknown, nowMs: number): string {
   const recordedAt = requireString(value, 'recordedAt', 64);
   const timestamp = Date.parse(recordedAt);
   if (!Number.isFinite(timestamp) || !recordedAt.includes('T')) {
     throw new Error('recordedAt must be an ISO-8601 timestamp.');
+  }
+  if (!Number.isFinite(nowMs)) {
+    throw new Error('nowMs must be finite.');
+  }
+  if (timestamp > nowMs + MAX_CLOCK_SKEW_MS) {
+    throw new Error('recordedAt must not be in the future beyond the allowed clock skew.');
   }
   return recordedAt;
 }
@@ -85,7 +92,10 @@ function parseChannel(value: unknown, field: 'local' | 'remote'): CaptureChannel
   return { opened: true, liveTrack: true, signalDetected: true, startupLatencyMs: value.startupLatencyMs as number };
 }
 
-export function parseCaptureValidationEvidence(value: unknown): CaptureValidationEvidence {
+export function parseCaptureValidationEvidence(
+  value: unknown,
+  nowMs = Date.now(),
+): CaptureValidationEvidence {
   if (!isRecord(value) || !hasOnlyKeys(value, ['schemaVersion', 'recordedAt', 'platform', 'app', 'capture', 'rawAudioPersisted', 'notes'])) {
     throw new Error('Capture validation evidence has an invalid shape.');
   }
@@ -103,7 +113,7 @@ export function parseCaptureValidationEvidence(value: unknown): CaptureValidatio
 
   return {
     schemaVersion: CAPTURE_VALIDATION_SCHEMA_VERSION,
-    recordedAt: requireRecordedAt(value.recordedAt),
+    recordedAt: requireRecordedAt(value.recordedAt, nowMs),
     platform: { os: 'macos', version: requireString(value.platform.version, 'platform.version'), arch: value.platform.arch },
     app: { target: value.app.target as CaptureValidationTarget, ...(appVersion === undefined ? {} : { version: appVersion }) },
     capture: { local: parseChannel(value.capture.local, 'local'), remote: parseChannel(value.capture.remote, 'remote') },
@@ -112,12 +122,15 @@ export function parseCaptureValidationEvidence(value: unknown): CaptureValidatio
   };
 }
 
-export function buildCaptureValidationMatrix(values: readonly unknown[]): CaptureValidationMatrix {
+export function buildCaptureValidationMatrix(
+  values: readonly unknown[],
+  nowMs = Date.now(),
+): CaptureValidationMatrix {
   const evidence = new Map<CaptureValidationTarget, CaptureValidationEvidence>();
   let expectedPlatform: CaptureValidationEvidence['platform'] | undefined;
 
   for (const value of values) {
-    const parsed = parseCaptureValidationEvidence(value);
+    const parsed = parseCaptureValidationEvidence(value, nowMs);
     if (evidence.has(parsed.app.target)) throw new Error(`Duplicate capture validation target: ${parsed.app.target}.`);
 
     if (!expectedPlatform) {
