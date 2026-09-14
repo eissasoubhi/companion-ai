@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type { TranscriptBenchmarkCorpusCase } from './benchmark-corpus.js';
 import {
   executeTranscriptBenchmarkRun,
@@ -5,9 +7,10 @@ import {
   type TranscriptBenchmarkExecutionResult,
 } from './benchmark-execution.js';
 import type { LoadedTranscriptBenchmarkFixtureSet } from './benchmark-fixture-loader.js';
+import type { TranscriptBenchmarkFixtureManifest } from './benchmark-fixture-manifest.js';
 import type { TranscriptionProvider } from './types.js';
 
-export const TRANSCRIPT_BENCHMARK_BATCH_ARTIFACT_VERSION = 1 as const;
+export const TRANSCRIPT_BENCHMARK_BATCH_ARTIFACT_VERSION = 2 as const;
 
 export interface TranscriptBenchmarkBatchOptions extends TranscriptBenchmarkExecutionOptions {
   readonly sessionIdPrefix?: string | undefined;
@@ -17,6 +20,7 @@ export interface TranscriptBenchmarkBatchResult {
   readonly version: typeof TRANSCRIPT_BENCHMARK_BATCH_ARTIFACT_VERSION;
   readonly corpusVersion: string;
   readonly fixtureSetId: string;
+  readonly fixtureFingerprintSha256: string;
   readonly caseIds: readonly string[];
   readonly providerIds: readonly string[];
   readonly runs: readonly TranscriptBenchmarkExecutionResult[];
@@ -71,6 +75,31 @@ function assertCorpus(corpus: readonly TranscriptBenchmarkCorpusCase[]): readonl
   return caseIds;
 }
 
+export function fingerprintTranscriptBenchmarkFixtureManifest(
+  manifest: TranscriptBenchmarkFixtureManifest,
+): string {
+  const entries = [...manifest.entries]
+    .map((entry) => ({
+      caseId: entry.caseId,
+      source: entry.source,
+      path: entry.path,
+      sha256: entry.sha256,
+      encoding: entry.encoding,
+      sampleRateHz: entry.sampleRateHz,
+      channels: entry.channels,
+    }))
+    .sort((left, right) => left.caseId.localeCompare(right.caseId));
+
+  const canonical = JSON.stringify({
+    version: manifest.version,
+    fixtureSetId: manifest.fixtureSetId,
+    corpusVersion: manifest.corpusVersion,
+    entries,
+  });
+
+  return createHash('sha256').update(canonical, 'utf8').digest('hex');
+}
+
 export async function executeTranscriptBenchmarkBatch(
   providers: readonly TranscriptionProvider[],
   corpus: readonly TranscriptBenchmarkCorpusCase[],
@@ -82,6 +111,7 @@ export async function executeTranscriptBenchmarkBatch(
 
   canonicalIdentifier(fixtureSet.manifest.corpusVersion, 'benchmark fixture corpusVersion');
   canonicalIdentifier(fixtureSet.manifest.fixtureSetId, 'benchmark fixture fixtureSetId');
+  const fixtureFingerprintSha256 = fingerprintTranscriptBenchmarkFixtureManifest(fixtureSet.manifest);
 
   const sessionIdPrefix =
     options.sessionIdPrefix?.trim() || `benchmark:${fixtureSet.manifest.fixtureSetId}`;
@@ -102,6 +132,7 @@ export async function executeTranscriptBenchmarkBatch(
     version: TRANSCRIPT_BENCHMARK_BATCH_ARTIFACT_VERSION,
     corpusVersion: fixtureSet.manifest.corpusVersion,
     fixtureSetId: fixtureSet.manifest.fixtureSetId,
+    fixtureFingerprintSha256,
     caseIds,
     providerIds,
     runs,

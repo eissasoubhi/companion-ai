@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   executeTranscriptBenchmarkBatch,
+  fingerprintTranscriptBenchmarkFixtureManifest,
   serializeTranscriptBenchmarkBatchArtifact,
 } from './benchmark-batch.js';
 import type { LoadedTranscriptBenchmarkFixtureSet } from './benchmark-fixture-loader.js';
@@ -144,11 +145,29 @@ describe('executeTranscriptBenchmarkBatch', () => {
     expect(result.caseIds).toEqual(['local-case', 'remote-case']);
     expect(result.corpusVersion).toBe('corpus-v1');
     expect(result.fixtureSetId).toBe('fixtures-v1');
+    expect(result.fixtureFingerprintSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(result.runs).toHaveLength(2);
     expect(result.runs.every((run) => run.report.accuracy.wordErrorRate === 0)).toBe(true);
     expect(first.requests.map((request) => request.source)).toEqual(['local', 'remote']);
     expect(second.requests.map((request) => request.source)).toEqual(['local', 'remote']);
     expect(first.requests[0]?.sessionId).toBe('comparison-v1:provider:first:local-case');
+  });
+
+  it('fingerprints fixture identity deterministically and changes when verified bytes change', () => {
+    const original = fingerprintTranscriptBenchmarkFixtureManifest(fixtureSet.manifest);
+    const reordered = fingerprintTranscriptBenchmarkFixtureManifest({
+      ...fixtureSet.manifest,
+      entries: [...fixtureSet.manifest.entries].reverse(),
+    });
+    const changedDigest = fingerprintTranscriptBenchmarkFixtureManifest({
+      ...fixtureSet.manifest,
+      entries: fixtureSet.manifest.entries.map((entry) =>
+        entry.caseId === 'local-case' ? { ...entry, sha256: 'c'.repeat(64) } : entry,
+      ),
+    });
+
+    expect(reordered).toBe(original);
+    expect(changedDigest).not.toBe(original);
   });
 
   it('rejects duplicate provider ids before opening any provider connection', async () => {
@@ -184,8 +203,9 @@ describe('executeTranscriptBenchmarkBatch', () => {
     const artifact = serializeTranscriptBenchmarkBatchArtifact(result);
     expect(artifact.endsWith('\n')).toBe(true);
     expect(artifact).toContain('"fixtureSetId": "fixtures-v1"');
+    expect(artifact).toContain('"fixtureFingerprintSha256"');
     expect(artifact).toContain('"providerId": "provider:artifact"');
     expect(artifact).not.toContain('"data"');
-    expect(artifact).not.toContain('sha256');
+    expect(artifact).not.toContain('"sha256"');
   });
 });
