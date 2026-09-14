@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "fixtureSetId": "operational-synthetic-en-v1",
+  "corpusVersion": "operational-synthetic-en-v1",
+  "entries": [
+    {
+      "caseId": "endpoint-en-question",
+      "source": "remote",
+      "path": "audio/pause-before.pcm.gz.b64",
+      "sha256": "c1459e35718578a69262118f63db188534c44c6b0604989a90ea6b3e198dd2c9",
+      "encoding": "pcm-s16le",
+      "sampleRateHz": 16000,
+      "channels": 1,
+      "storageEncoding": "gzip-base64"
+    },
+    {
+      "caseId": "pause-before-en-question",
+      "source": "remote",
+      "path": "audio/pause-before.pcm.gz.b64",
+      "sha256": "c1459e35718578a69262118f63db188534c44c6b0604989a90ea6b3e198dd2c9",
+      "encoding": "pcm-s16le",
+      "sampleRateHz": 16000,
+      "channels": 1,
+      "storageEncoding": "gzip-base64"
+    },
+    {
+      "caseId": "pause-after-en-question",
+      "source": "remote",
+      "path": "audio/pause-before.pcm.gz.b64",
+      "sha256": "c1459e35718578a69262118f63db188534c44c6b0604989a90ea6b3e198dd2c9",
+      "encoding": "pcm-s16le",
+      "sampleRateHz": 16000,
+      "channels": 1,
+      "storageEncoding": "gzip-base64"
+    }
+  ]
+}

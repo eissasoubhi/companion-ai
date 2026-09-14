@@ -1,6 +1,7 @@
 import type { AudioChunk, AudioEncoding } from './types.js';
 
 export const TRANSCRIPT_BENCHMARK_FIXTURE_MANIFEST_VERSION = 1 as const;
+export type TranscriptBenchmarkFixtureStorageEncoding = 'raw' | 'base64' | 'gzip-base64';
 
 export interface TranscriptBenchmarkFixtureManifestEntry {
   readonly caseId: string;
@@ -10,6 +11,7 @@ export interface TranscriptBenchmarkFixtureManifestEntry {
   readonly encoding: AudioChunk['encoding'];
   readonly sampleRateHz: number;
   readonly channels: number;
+  readonly storageEncoding?: TranscriptBenchmarkFixtureStorageEncoding | undefined;
 }
 
 export interface TranscriptBenchmarkFixtureManifest {
@@ -22,6 +24,11 @@ export interface TranscriptBenchmarkFixtureManifest {
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const WINDOWS_DRIVE_PATH_PATTERN = /^[a-zA-Z]:\//;
 const AUDIO_ENCODINGS = new Set<AudioEncoding>(['pcm-s16le', 'pcm-f32le', 'opus']);
+const STORAGE_ENCODINGS = new Set<TranscriptBenchmarkFixtureStorageEncoding>([
+  'raw',
+  'base64',
+  'gzip-base64',
+]);
 
 function assertIdentifier(value: string, label: string): void {
   if (value.trim().length === 0) {
@@ -41,6 +48,20 @@ function assertRelativeFixturePath(path: string, caseId: string): void {
   }
 }
 
+function sameFixtureAsset(
+  left: TranscriptBenchmarkFixtureManifestEntry,
+  right: TranscriptBenchmarkFixtureManifestEntry,
+): boolean {
+  return (
+    left.source === right.source &&
+    left.sha256 === right.sha256 &&
+    left.encoding === right.encoding &&
+    left.sampleRateHz === right.sampleRateHz &&
+    left.channels === right.channels &&
+    (left.storageEncoding ?? 'raw') === (right.storageEncoding ?? 'raw')
+  );
+}
+
 export function assertTranscriptBenchmarkFixtureManifest(
   manifest: TranscriptBenchmarkFixtureManifest,
   expectedCaseIds?: readonly string[],
@@ -57,7 +78,7 @@ export function assertTranscriptBenchmarkFixtureManifest(
   }
 
   const seenCaseIds = new Set<string>();
-  const seenPaths = new Set<string>();
+  const seenPaths = new Map<string, TranscriptBenchmarkFixtureManifestEntry>();
 
   for (const entry of manifest.entries) {
     assertIdentifier(entry.caseId, 'benchmark fixture caseId');
@@ -72,10 +93,11 @@ export function assertTranscriptBenchmarkFixtureManifest(
 
     assertRelativeFixturePath(entry.path, entry.caseId);
     const normalizedPath = entry.path.replaceAll('\\', '/');
-    if (seenPaths.has(normalizedPath)) {
-      throw new Error(`duplicate benchmark fixture path: ${normalizedPath}`);
+    const existingEntry = seenPaths.get(normalizedPath);
+    if (existingEntry && !sameFixtureAsset(existingEntry, entry)) {
+      throw new Error(`benchmark fixture path has conflicting metadata: ${normalizedPath}`);
     }
-    seenPaths.add(normalizedPath);
+    seenPaths.set(normalizedPath, entry);
 
     if (!SHA256_PATTERN.test(entry.sha256)) {
       throw new Error(`benchmark fixture sha256 is invalid: ${entry.caseId}`);
@@ -89,6 +111,11 @@ export function assertTranscriptBenchmarkFixtureManifest(
     }
     if (!Number.isInteger(entry.channels) || entry.channels <= 0) {
       throw new RangeError(`benchmark fixture channels is invalid: ${entry.caseId}`);
+    }
+
+    const storageEncoding = entry.storageEncoding ?? 'raw';
+    if (!STORAGE_ENCODINGS.has(storageEncoding)) {
+      throw new Error(`benchmark fixture storageEncoding is invalid: ${entry.caseId}`);
     }
   }
 

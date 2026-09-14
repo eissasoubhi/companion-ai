@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -24,8 +25,14 @@ async function createFixtureSet(
   const root = await mkdtemp(join(tmpdir(), 'companion-ai-benchmark-'));
   tempDirs.push(root);
 
-  const audioPath = join(root, 'case-one.pcm');
-  await writeFile(audioPath, audio);
+  const storageEncoding = overrides.storageEncoding ?? 'raw';
+  const fileName = storageEncoding === 'raw' ? 'case-one.pcm' : `case-one.pcm.${storageEncoding}.txt`;
+  const audioPath = join(root, fileName);
+  const stored =
+    storageEncoding === 'raw'
+      ? audio
+      : Buffer.from(storageEncoding === 'gzip-base64' ? gzipSync(audio) : audio).toString('base64');
+  await writeFile(audioPath, stored);
 
   const manifest: TranscriptBenchmarkFixtureManifest = {
     version: 1,
@@ -35,7 +42,7 @@ async function createFixtureSet(
       {
         caseId: 'case-one',
         source: 'remote',
-        path: 'case-one.pcm',
+        path: fileName,
         sha256: createHash('sha256').update(audio).digest('hex'),
         encoding: 'pcm-s16le',
         sampleRateHz: 16_000,
@@ -68,6 +75,46 @@ describe('loadTranscriptBenchmarkFixtureSet', () => {
     expect(loaded.fixtures[0]?.chunks.map((chunk) => chunk.capturedAtMs)).toEqual([0, 50]);
   });
 
+  it.each(['base64', 'gzip-base64'] as const)(
+    'decodes canonical %s storage before hashing and chunking',
+    async (storageEncoding) => {
+      const audio = new Uint8Array([1, 2, 3, 4]);
+      const manifestPath = await createFixtureSet(audio, { storageEncoding });
+
+      const loaded = await loadTranscriptBenchmarkFixtureSet(manifestPath, ['case-one']);
+
+      expect(Array.from(loaded.fixtures[0]?.chunks[0]?.data ?? [])).toEqual([1, 2, 3, 4]);
+    },
+  );
+
+  it('rejects malformed or non-canonical base64 storage', async () => {
+    const audio = new Uint8Array([1, 2, 3, 4]);
+    const malformed = await createFixtureSet(audio, { storageEncoding: 'base64' });
+    await writeFile(join(malformed, '..', 'case-one.pcm.base64.txt'), 'not base64!');
+    await expect(loadTranscriptBenchmarkFixtureSet(malformed)).rejects.toThrow(
+      'benchmark fixture base64 is invalid: case-one',
+    );
+
+    const nonCanonical = await createFixtureSet(audio, { storageEncoding: 'base64' });
+    await writeFile(join(nonCanonical, '..', 'case-one.pcm.base64.txt'), 'AQIDBA====');
+    await expect(loadTranscriptBenchmarkFixtureSet(nonCanonical)).rejects.toThrow(
+      'benchmark fixture base64 is invalid: case-one',
+    );
+  });
+
+  it('rejects invalid gzip data after bounded base64 decoding', async () => {
+    const audio = new Uint8Array([1, 2, 3, 4]);
+    const manifestPath = await createFixtureSet(audio, { storageEncoding: 'gzip-base64' });
+    await writeFile(
+      join(manifestPath, '..', 'case-one.pcm.gzip-base64.txt'),
+      Buffer.from('not-gzip').toString('base64'),
+    );
+
+    await expect(loadTranscriptBenchmarkFixtureSet(manifestPath)).rejects.toThrow(
+      'benchmark fixture gzip decode failed: case-one',
+    );
+  });
+
   it('hard-bounds chunks even when the requested duration is extreme', async () => {
     const audio = new Uint8Array(MAX_TRANSCRIPT_BENCHMARK_CHUNK_BYTES * 3);
     const manifestPath = await createFixtureSet(audio);
@@ -84,13 +131,22 @@ describe('loadTranscriptBenchmarkFixtureSet', () => {
     expect(chunks.every((chunk) => chunk.data.byteLength % 2 === 0)).toBe(true);
   });
 
-  it('rejects a fixture before reading it when it exceeds the configured byte limit', async () => {
+  it('rejects a fixture before reading it when it exceeds the configured stored byte limit', async () => {
     const audio = new Uint8Array(10);
     const manifestPath = await createFixtureSet(audio);
 
     await expect(
       loadTranscriptBenchmarkFixtureSet(manifestPath, ['case-one'], { maxFixtureBytes: 8 }),
-    ).rejects.toThrow('benchmark fixture exceeds byte limit: case-one (10 > 8)');
+    ).rejects.toThrow('benchmark fixture exceeds stored byte limit: case-one (10 > 8)');
+  });
+
+  it('rejects decoded base64 audio when it exceeds the configured audio byte limit', async () => {
+    const audio = new Uint8Array(10);
+    const manifestPath = await createFixtureSet(audio, { storageEncoding: 'base64' });
+
+    await expect(
+      loadTranscriptBenchmarkFixtureSet(manifestPath, ['case-one'], { maxFixtureBytes: 8 }),
+    ).rejects.toThrow('benchmark fixture exceeds decoded byte limit: case-one (10 > 8)');
   });
 
   it('rejects invalid fixture byte limits', async () => {
