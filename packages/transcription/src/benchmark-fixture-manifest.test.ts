@@ -54,7 +54,7 @@ describe('assertTranscriptBenchmarkFixtureManifest', () => {
     ).toThrow('unsupported benchmark fixture manifest version: 2');
   });
 
-  it('rejects duplicate case ids and paths', () => {
+  it('rejects duplicate case ids', () => {
     const base = manifest();
     const first = base.entries[0]!;
 
@@ -64,13 +64,30 @@ describe('assertTranscriptBenchmarkFixtureManifest', () => {
         entries: [first, { ...first, sha256: HASH_B }],
       }),
     ).toThrow('duplicate benchmark fixture caseId: case-one');
+  });
+
+  it('allows multiple cases to reuse one verified asset', () => {
+    const base = manifest();
+    const first = base.entries[0]!;
 
     expect(() =>
       assertTranscriptBenchmarkFixtureManifest({
         ...base,
-        entries: [first, { ...base.entries[1]!, path: first.path }],
+        entries: [first, { ...first, caseId: 'case-two' }],
       }),
-    ).toThrow('duplicate benchmark fixture path: audio/case-one.pcm');
+    ).not.toThrow();
+  });
+
+  it('rejects reused paths whose asset metadata conflicts', () => {
+    const base = manifest();
+    const first = base.entries[0]!;
+
+    expect(() =>
+      assertTranscriptBenchmarkFixtureManifest({
+        ...base,
+        entries: [first, { ...first, caseId: 'case-two', sha256: HASH_B }],
+      }),
+    ).toThrow('benchmark fixture path has conflicting metadata: audio/case-one.pcm');
   });
 
   it('rejects unsafe paths and malformed hashes before file IO', () => {
