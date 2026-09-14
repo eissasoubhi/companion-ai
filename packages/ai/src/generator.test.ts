@@ -58,36 +58,39 @@ describe('streamAnswerSuggestion', () => {
     });
   });
 
-  it('omits trigger latency when the trigger timestamp is not finite', async () => {
-    const provider: LLMProvider = {
-      id: 'fake-llm',
-      async *stream() {
-        yield { type: 'delta', text: 'answer' } as const;
-        yield { type: 'completed', finishReason: 'stop' } as const;
-      },
-    };
-    const events: AnswerGenerationEvent[] = [];
-    const times = [1_000, 1_050, 1_100];
-    const clock = () => times.shift() ?? 1_100;
+  it.each([Number.NaN, -1, 1_001])(
+    'omits trigger latency for invalid trigger timestamp %s',
+    async (triggeredAtMs) => {
+      const provider: LLMProvider = {
+        id: 'fake-llm',
+        async *stream() {
+          yield { type: 'delta', text: 'answer' } as const;
+          yield { type: 'completed', finishReason: 'stop' } as const;
+        },
+      };
+      const events: AnswerGenerationEvent[] = [];
+      const times = [1_000, 1_050, 1_100];
+      const clock = () => times.shift() ?? 1_100;
 
-    await streamAnswerSuggestion(
-      provider,
-      { ...request('invalid-trigger'), triggeredAtMs: Number.NaN },
-      (event) => events.push(event),
-      new AbortController().signal,
-      clock,
-    );
+      await streamAnswerSuggestion(
+        provider,
+        { ...request('invalid-trigger'), triggeredAtMs },
+        (event) => events.push(event),
+        new AbortController().signal,
+        clock,
+      );
 
-    const suggestionEvent = events.find((event) => event.type === 'suggestion');
-    expect(suggestionEvent).toMatchObject({
-      type: 'suggestion',
-      metrics: { timeToFirstTokenMs: 50 },
-    });
-    if (suggestionEvent?.type === 'suggestion') {
-      expect(suggestionEvent.metrics.triggeredAtMs).toBeUndefined();
-      expect(suggestionEvent.metrics.triggerToFirstTokenMs).toBeUndefined();
-    }
-  });
+      const suggestionEvent = events.find((event) => event.type === 'suggestion');
+      expect(suggestionEvent).toMatchObject({
+        type: 'suggestion',
+        metrics: { timeToFirstTokenMs: 50 },
+      });
+      if (suggestionEvent?.type === 'suggestion') {
+        expect(suggestionEvent.metrics.triggeredAtMs).toBeUndefined();
+        expect(suggestionEvent.metrics.triggerToFirstTokenMs).toBeUndefined();
+      }
+    },
+  );
 
   it('fails closed if a provider ends without an explicit completion event', async () => {
     const provider: LLMProvider = {
