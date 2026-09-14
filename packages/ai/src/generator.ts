@@ -29,20 +29,29 @@ function suggestionFor(
 
 function metricsFor(
   providerId: string,
-  requestId: string,
+  request: AnswerGenerationRequest,
   startedAtMs: number,
   firstTokenAtMs?: number,
   completedAtMs?: number,
 ): AnswerGenerationMetrics {
+  const triggeredAtMs =
+    request.triggeredAtMs !== undefined && Number.isFinite(request.triggeredAtMs)
+      ? request.triggeredAtMs
+      : undefined;
+
   return {
     providerId,
-    requestId,
+    requestId: request.requestId,
     startedAtMs,
+    ...(triggeredAtMs === undefined ? {} : { triggeredAtMs }),
     ...(firstTokenAtMs === undefined
       ? {}
       : {
           firstTokenAtMs,
           timeToFirstTokenMs: Math.max(0, firstTokenAtMs - startedAtMs),
+          ...(triggeredAtMs === undefined
+            ? {}
+            : { triggerToFirstTokenMs: Math.max(0, firstTokenAtMs - triggeredAtMs) }),
         }),
     ...(completedAtMs === undefined
       ? {}
@@ -74,7 +83,7 @@ export async function streamAnswerSuggestion(
       suggestion,
       metrics: metricsFor(
         provider.id,
-        request.requestId,
+        request,
         startedAtMs,
         firstTokenAtMs,
         completedAtMs,
