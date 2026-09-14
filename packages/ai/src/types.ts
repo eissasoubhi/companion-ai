@@ -15,6 +15,7 @@ export interface AnswerGenerationRequest {
   readonly questionId: string;
   readonly question: string;
   readonly length: SuggestionLength;
+  readonly triggeredAtMs?: number | undefined;
   readonly grounding?: readonly GroundingSource[] | undefined;
   readonly groundingContext?: readonly GroundingContextSnippet[] | undefined;
   readonly instructions?: string | undefined;
@@ -51,9 +52,11 @@ export interface AnswerGenerationMetrics {
   readonly providerId: string;
   readonly requestId: string;
   readonly startedAtMs: number;
+  readonly triggeredAtMs?: number | undefined;
   readonly firstTokenAtMs?: number | undefined;
   readonly completedAtMs?: number | undefined;
   readonly timeToFirstTokenMs?: number | undefined;
+  readonly triggerToFirstTokenMs?: number | undefined;
   readonly totalDurationMs?: number | undefined;
 }
 
