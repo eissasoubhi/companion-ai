@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 import {
   assertTranscriptBenchmarkFixtureManifest,
@@ -85,7 +86,7 @@ function maxStoredFixtureBytes(
   if ((entry.storageEncoding ?? 'raw') === 'raw') return maxFixtureBytes;
   const encodedBound = maxFixtureBytes * 2;
   if (!Number.isSafeInteger(encodedBound)) {
-    throw new RangeError('maxFixtureBytes is too large for base64 fixture storage');
+    throw new RangeError('maxFixtureBytes is too large for encoded fixture storage');
   }
   return encodedBound;
 }
@@ -107,13 +108,10 @@ async function readBoundedFixture(
   return readFile(filePath);
 }
 
-function decodeFixture(
+function decodeCanonicalBase64(
   entry: TranscriptBenchmarkFixtureManifestEntry,
   stored: Uint8Array,
-  maxFixtureBytes: number,
-): Uint8Array {
-  if ((entry.storageEncoding ?? 'raw') === 'raw') return stored;
-
+): Buffer {
   const compact = Buffer.from(stored).toString('utf8').replaceAll(/\s/g, '');
   if (
     compact.length === 0 ||
@@ -127,12 +125,40 @@ function decodeFixture(
   if (decoded.toString('base64') !== compact) {
     throw new Error(`benchmark fixture base64 is not canonical: ${entry.caseId}`);
   }
+  return decoded;
+}
+
+function assertDecodedBound(
+  entry: TranscriptBenchmarkFixtureManifestEntry,
+  decoded: Uint8Array,
+  maxFixtureBytes: number,
+): Uint8Array {
   if (decoded.byteLength > maxFixtureBytes) {
     throw new Error(
       `benchmark fixture exceeds decoded byte limit: ${entry.caseId} (${decoded.byteLength} > ${maxFixtureBytes})`,
     );
   }
   return decoded;
+}
+
+function decodeFixture(
+  entry: TranscriptBenchmarkFixtureManifestEntry,
+  stored: Uint8Array,
+  maxFixtureBytes: number,
+): Uint8Array {
+  const storageEncoding = entry.storageEncoding ?? 'raw';
+  if (storageEncoding === 'raw') return stored;
+
+  const decodedStorage = decodeCanonicalBase64(entry, stored);
+  if (storageEncoding === 'base64') {
+    return assertDecodedBound(entry, decodedStorage, maxFixtureBytes);
+  }
+
+  try {
+    return gunzipSync(decodedStorage, { maxOutputLength: maxFixtureBytes });
+  } catch (error) {
+    throw new Error(`benchmark fixture gzip decode failed: ${entry.caseId}`, { cause: error });
+  }
 }
 
 function chunkPcmFixture(
