@@ -32,10 +32,27 @@ function isNonNegativeInteger(value: number): boolean {
   return Number.isInteger(value) && value >= 0;
 }
 
+function isValidLatencySummary(
+  summary: TranscriptBenchmarkRunReport['latency']['partial'],
+): boolean {
+  if (!isNonNegativeInteger(summary.count)) return false;
+
+  const values = [summary.p50Ms, summary.p95Ms, summary.maxMs, summary.meanMs] as const;
+  if (summary.count === 0) return values.every((value) => value === null);
+  if (!values.every(isNonNegativeFinite)) return false;
+
+  const p50 = summary.p50Ms!;
+  const p95 = summary.p95Ms!;
+  const max = summary.maxMs!;
+  const mean = summary.meanMs!;
+  return p50 <= p95 && p95 <= max && mean <= max;
+}
+
 function candidateReasons(candidate: TranscriptBenchmarkCandidate): string[] {
   const providerId = candidate.report.providerId;
   const reasons: string[] = [];
   const accuracy = candidate.report.accuracy;
+  const latency = candidate.report.latency;
   const operationalProviderId = candidate.operational.providerId.trim();
 
   if (operationalProviderId.length === 0) {
@@ -78,17 +95,36 @@ function candidateReasons(candidate: TranscriptBenchmarkCandidate): string[] {
     reasons.push(`${providerId}: invalid technical-term counts`);
   }
 
-  if (candidate.report.latency.partial.count === 0) {
+  if (latency.partial.count === 0) {
     reasons.push(`${providerId}: missing partial transcript latency samples`);
   }
-  if (candidate.report.latency.final.count === 0) {
+  if (latency.final.count === 0) {
     reasons.push(`${providerId}: missing final transcript latency samples`);
   }
-  if (candidate.report.latency.local.count === 0) {
+  if (latency.local.count === 0) {
     reasons.push(`${providerId}: missing local-channel latency samples`);
   }
-  if (candidate.report.latency.remote.count === 0) {
+  if (latency.remote.count === 0) {
     reasons.push(`${providerId}: missing remote-channel latency samples`);
+  }
+
+  for (const [label, summary] of [
+    ['all', latency.all],
+    ['partial', latency.partial],
+    ['final', latency.final],
+    ['local', latency.local],
+    ['remote', latency.remote],
+  ] as const) {
+    if (!isValidLatencySummary(summary)) {
+      reasons.push(`${providerId}: invalid ${label} transcript latency summary`);
+    }
+  }
+
+  if (
+    latency.all.count !== latency.partial.count + latency.final.count
+    || latency.all.count !== latency.local.count + latency.remote.count
+  ) {
+    reasons.push(`${providerId}: inconsistent transcript latency sample counts`);
   }
 
   if (!isNonNegativeFinite(candidate.operational.endpointFinalizationP95Ms)) {
