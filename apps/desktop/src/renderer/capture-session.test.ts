@@ -247,4 +247,24 @@ describe('startCaptureSession', () => {
     expect(harness.remoteHandle.stop).toHaveBeenCalledOnce();
     expect(harness.dependencies.stopTranscription).toHaveBeenCalledOnce();
   });
+
+  it('fails stop within a bounded interval when one cleanup operation hangs', async () => {
+    const harness = createDependencies();
+    harness.localHandle.stop = vi.fn(() => new Promise<void>(() => undefined));
+    const session = await startCaptureSession({ cleanupTimeoutMs: 5 }, harness.dependencies);
+
+    await expect(session.stop()).rejects.toThrow('Local capture cleanup timed out after 5ms.');
+    expect(harness.remoteHandle.stop).toHaveBeenCalledOnce();
+    expect(harness.dependencies.stopTranscription).toHaveBeenCalledOnce();
+  });
+
+  it('rejects invalid cleanup timeout configuration before acquiring media', async () => {
+    const harness = createDependencies();
+
+    await expect(startCaptureSession({ cleanupTimeoutMs: 0 }, harness.dependencies)).rejects.toThrow(
+      'cleanupTimeoutMs must be a finite number between 1 and 10000.',
+    );
+    expect(harness.dependencies.getUserMedia).not.toHaveBeenCalled();
+    expect(harness.dependencies.getDisplayMedia).not.toHaveBeenCalled();
+  });
 });
