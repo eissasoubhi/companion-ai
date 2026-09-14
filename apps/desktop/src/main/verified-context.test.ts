@@ -94,6 +94,12 @@ describe('verified context loading', () => {
     expect(() => loadVerifiedContextFromFile(filePath, 8)).toThrow(/byte limit/i);
   });
 
+  it('rejects unsafe allocation limits before opening the context file', () => {
+    expect(() => loadVerifiedContextFromFile('/does/not/matter', Number.MAX_SAFE_INTEGER)).toThrow(
+      /between 1 and 1048576/i,
+    );
+  });
+
   it('loads from an explicit main-process environment path and defaults to no context', () => {
     const directory = mkdtempSync(join(tmpdir(), 'companion-context-'));
     const filePath = join(directory, 'context.json');
