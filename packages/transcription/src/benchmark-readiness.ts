@@ -32,6 +32,10 @@ function isNonNegativeInteger(value: number): boolean {
   return Number.isInteger(value) && value >= 0;
 }
 
+function nearlyEqual(left: number, right: number): boolean {
+  return Math.abs(left - right) <= 1e-9;
+}
+
 function isValidLatencySummary(
   summary: TranscriptBenchmarkRunReport['latency']['partial'],
 ): boolean {
@@ -46,6 +50,87 @@ function isValidLatencySummary(
   const max = summary.maxMs!;
   const mean = summary.meanMs!;
   return p50 <= p95 && p95 <= max && mean <= max;
+}
+
+function accuracySampleReasons(
+  providerId: string,
+  accuracy: TranscriptBenchmarkRunReport['accuracy'],
+): string[] {
+  const reasons: string[] = [];
+  const ids = new Set<string>();
+  let referenceWordCount = 0;
+  let keyTermCount = 0;
+  let keyTermMatches = 0;
+  let weightedErrors = 0;
+
+  for (const sample of accuracy.samples) {
+    const id = sample.id.trim();
+    if (id.length === 0 || id !== sample.id) {
+      reasons.push(`${providerId}: invalid accuracy sample id`);
+    } else if (ids.has(id)) {
+      reasons.push(`${providerId}: duplicate accuracy sample id: ${id}`);
+    } else {
+      ids.add(id);
+    }
+
+    if (!isNonNegativeInteger(sample.referenceWordCount) || sample.referenceWordCount === 0) {
+      reasons.push(`${providerId}: invalid accuracy sample reference word count: ${sample.id}`);
+    }
+    if (!Number.isFinite(sample.wordErrorRate) || sample.wordErrorRate < 0) {
+      reasons.push(`${providerId}: invalid accuracy sample word error rate: ${sample.id}`);
+    }
+    if (
+      !isNonNegativeInteger(sample.keyTermCount)
+      || !isNonNegativeInteger(sample.keyTermMatches)
+      || sample.keyTermMatches > sample.keyTermCount
+    ) {
+      reasons.push(`${providerId}: invalid accuracy sample technical-term counts: ${sample.id}`);
+    }
+    if (sample.keyTermCount === 0) {
+      if (sample.keyTermAccuracy !== null) {
+        reasons.push(`${providerId}: invalid accuracy sample technical-term accuracy: ${sample.id}`);
+      }
+    } else if (!isRate(sample.keyTermAccuracy)) {
+      reasons.push(`${providerId}: invalid accuracy sample technical-term accuracy: ${sample.id}`);
+    } else if (!nearlyEqual(sample.keyTermAccuracy!, sample.keyTermMatches / sample.keyTermCount)) {
+      reasons.push(`${providerId}: inconsistent accuracy sample technical-term accuracy: ${sample.id}`);
+    }
+
+    if (isNonNegativeInteger(sample.referenceWordCount)) {
+      referenceWordCount += sample.referenceWordCount;
+      if (Number.isFinite(sample.wordErrorRate) && sample.wordErrorRate >= 0) {
+        weightedErrors += sample.wordErrorRate * sample.referenceWordCount;
+      }
+    }
+    if (isNonNegativeInteger(sample.keyTermCount)) keyTermCount += sample.keyTermCount;
+    if (isNonNegativeInteger(sample.keyTermMatches)) keyTermMatches += sample.keyTermMatches;
+  }
+
+  if (
+    referenceWordCount !== accuracy.referenceWordCount
+    || keyTermCount !== accuracy.keyTermCount
+    || keyTermMatches !== accuracy.keyTermMatches
+  ) {
+    reasons.push(`${providerId}: aggregate accuracy counts do not match sample evidence`);
+  }
+
+  if (referenceWordCount > 0 && Number.isFinite(accuracy.wordErrorRate)) {
+    const expectedWordErrorRate = weightedErrors / referenceWordCount;
+    if (!nearlyEqual(expectedWordErrorRate, accuracy.wordErrorRate)) {
+      reasons.push(`${providerId}: aggregate word error rate does not match sample evidence`);
+    }
+  }
+
+  const expectedKeyTermAccuracy = keyTermCount === 0 ? null : keyTermMatches / keyTermCount;
+  if (
+    expectedKeyTermAccuracy === null
+      ? accuracy.keyTermAccuracy !== null
+      : accuracy.keyTermAccuracy === null || !nearlyEqual(expectedKeyTermAccuracy, accuracy.keyTermAccuracy)
+  ) {
+    reasons.push(`${providerId}: aggregate technical-term accuracy does not match sample evidence`);
+  }
+
+  return reasons;
 }
 
 function candidateReasons(candidate: TranscriptBenchmarkCandidate): string[] {
@@ -94,6 +179,7 @@ function candidateReasons(candidate: TranscriptBenchmarkCandidate): string[] {
   ) {
     reasons.push(`${providerId}: invalid technical-term counts`);
   }
+  reasons.push(...accuracySampleReasons(providerId, accuracy));
 
   if (latency.partial.count === 0) {
     reasons.push(`${providerId}: missing partial transcript latency samples`);
