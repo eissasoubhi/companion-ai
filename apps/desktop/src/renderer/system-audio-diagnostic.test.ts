@@ -9,11 +9,30 @@ describe('system audio diagnostics', () => {
   it('turns a denied sharing request into an actionable blocked state', () => {
     const result = describeSystemAudioError(
       new DOMException('Permission denied', 'NotAllowedError'),
+      'supported',
     );
 
     expect(result.state).toBe('blocked');
+    expect(result.capability).toBe('supported');
+    expect(result.capture).toBe('denied');
     expect(result.message).toContain('cancelled or denied');
     expect(result.action).toContain('macOS sharing prompt');
+  });
+
+  it('keeps capability unknown when capability discovery itself fails', async () => {
+    const result = await runSystemAudioDiagnostic({
+      getCapability: async () => {
+        throw new Error('IPC unavailable');
+      },
+      getDisplayMedia: vi.fn(),
+      createAudioContext: () => {
+        throw new Error('should not be called');
+      },
+    });
+
+    expect(result.state).toBe('error');
+    expect(result.capability).toBe('unknown');
+    expect(result.capture).toBe('failed');
   });
 
   it('fails closed when the platform capability is unsupported', async () => {
@@ -34,6 +53,8 @@ describe('system audio diagnostics', () => {
     });
 
     expect(result.state).toBe('blocked');
+    expect(result.capability).toBe('unsupported');
+    expect(result.capture).toBe('not-attempted');
     expect(result.message).toContain('not available');
     expect(getDisplayMedia).not.toHaveBeenCalled();
   });
@@ -59,6 +80,8 @@ describe('system audio diagnostics', () => {
     });
 
     expect(result.state).toBe('blocked');
+    expect(result.capability).toBe('supported');
+    expect(result.capture).toBe('no-audio-track');
     expect(result.message).toContain('did not provide');
     expect(stop).toHaveBeenCalledOnce();
   });
