@@ -13,6 +13,10 @@ export interface FixedFrameEncoderOptions {
   readonly frameDurationMs: number;
 }
 
+const PCM16_BYTES_PER_SAMPLE = 2;
+const MAX_FRAME_BYTES = 64 * 1024;
+const MAX_SAMPLES_PER_FRAME = MAX_FRAME_BYTES / PCM16_BYTES_PER_SAMPLE;
+
 export class FixedFramePcm16Encoder {
   readonly #sampleRateHz: number;
   readonly #samplesPerFrame: number;
@@ -33,6 +37,9 @@ export class FixedFramePcm16Encoder {
     );
     if (samplesPerFrame <= 0) {
       throw new RangeError('frameDurationMs is too small for the configured sample rate.');
+    }
+    if (samplesPerFrame > MAX_SAMPLES_PER_FRAME) {
+      throw new RangeError(`PCM16 frame exceeds the ${MAX_FRAME_BYTES} byte limit.`);
     }
 
     this.#sampleRateHz = options.sampleRateHz;
