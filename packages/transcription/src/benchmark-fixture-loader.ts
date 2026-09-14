@@ -78,21 +78,61 @@ function assertInsideRoot(root: string, filePath: string, caseId: string): void 
   }
 }
 
+function maxStoredFixtureBytes(
+  entry: TranscriptBenchmarkFixtureManifestEntry,
+  maxFixtureBytes: number,
+): number {
+  if ((entry.storageEncoding ?? 'raw') === 'raw') return maxFixtureBytes;
+  const encodedBound = maxFixtureBytes * 2;
+  if (!Number.isSafeInteger(encodedBound)) {
+    throw new RangeError('maxFixtureBytes is too large for base64 fixture storage');
+  }
+  return encodedBound;
+}
+
 async function readBoundedFixture(
   filePath: string,
   caseId: string,
-  maxFixtureBytes: number,
+  maxStoredBytes: number,
 ): Promise<Uint8Array> {
   const metadata = await stat(filePath);
   if (!metadata.isFile()) {
     throw new Error(`benchmark fixture path is not a regular file: ${caseId}`);
   }
-  if (metadata.size > maxFixtureBytes) {
+  if (metadata.size > maxStoredBytes) {
     throw new Error(
-      `benchmark fixture exceeds byte limit: ${caseId} (${metadata.size} > ${maxFixtureBytes})`,
+      `benchmark fixture exceeds stored byte limit: ${caseId} (${metadata.size} > ${maxStoredBytes})`,
     );
   }
   return readFile(filePath);
+}
+
+function decodeFixture(
+  entry: TranscriptBenchmarkFixtureManifestEntry,
+  stored: Uint8Array,
+  maxFixtureBytes: number,
+): Uint8Array {
+  if ((entry.storageEncoding ?? 'raw') === 'raw') return stored;
+
+  const compact = Buffer.from(stored).toString('utf8').replaceAll(/\s/g, '');
+  if (
+    compact.length === 0 ||
+    compact.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(compact)
+  ) {
+    throw new Error(`benchmark fixture base64 is invalid: ${entry.caseId}`);
+  }
+
+  const decoded = Buffer.from(compact, 'base64');
+  if (decoded.toString('base64') !== compact) {
+    throw new Error(`benchmark fixture base64 is not canonical: ${entry.caseId}`);
+  }
+  if (decoded.byteLength > maxFixtureBytes) {
+    throw new Error(
+      `benchmark fixture exceeds decoded byte limit: ${entry.caseId} (${decoded.byteLength} > ${maxFixtureBytes})`,
+    );
+  }
+  return decoded;
 }
 
 function chunkPcmFixture(
@@ -151,7 +191,12 @@ export async function loadTranscriptBenchmarkFixtureSet(
     const absoluteFixturePath = resolve(root, entry.path);
     assertInsideRoot(root, absoluteFixturePath, entry.caseId);
 
-    const file = await readBoundedFixture(absoluteFixturePath, entry.caseId, maxFixtureBytes);
+    const stored = await readBoundedFixture(
+      absoluteFixturePath,
+      entry.caseId,
+      maxStoredFixtureBytes(entry, maxFixtureBytes),
+    );
+    const file = decodeFixture(entry, stored, maxFixtureBytes);
     const actualHash = createHash('sha256').update(file).digest('hex');
     if (actualHash !== entry.sha256) {
       throw new Error(`benchmark fixture sha256 mismatch: ${entry.caseId}`);
