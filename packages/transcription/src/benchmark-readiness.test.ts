@@ -231,6 +231,76 @@ describe('assessTranscriptBenchmarkReadiness', () => {
     expect(result.reasons).toEqual(expect.arrayContaining([
       'provider-a: inconsistent accuracy sample counts',
       'provider-a: invalid technical-term counts',
+      'provider-a: aggregate accuracy counts do not match sample evidence',
+    ]));
+  });
+
+  it('rejects tampered per-sample accuracy metrics', () => {
+    const invalid = candidate();
+    const originalSample = invalid.report.accuracy.samples[0]!;
+    const result = assessTranscriptBenchmarkReadiness(
+      [
+        {
+          ...invalid,
+          report: {
+            ...invalid.report,
+            accuracy: {
+              ...invalid.report.accuracy,
+              samples: [
+                {
+                  ...originalSample,
+                  wordErrorRate: Number.NaN,
+                  keyTermMatches: 0,
+                  keyTermAccuracy: 1,
+                },
+              ],
+            },
+          },
+        },
+      ],
+      ['provider-a'],
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      'provider-a: invalid accuracy sample word error rate: case-one',
+      'provider-a: inconsistent accuracy sample technical-term accuracy: case-one',
+      'provider-a: aggregate accuracy counts do not match sample evidence',
+    ]));
+  });
+
+  it('rejects duplicate sample ids and aggregate rates that do not match sample evidence', () => {
+    const invalid = candidate();
+    const originalSample = invalid.report.accuracy.samples[0]!;
+    const duplicate = { ...originalSample };
+    const result = assessTranscriptBenchmarkReadiness(
+      [
+        {
+          ...invalid,
+          report: {
+            ...invalid.report,
+            sampleCount: 2,
+            accuracy: {
+              ...invalid.report.accuracy,
+              sampleCount: 2,
+              referenceWordCount: originalSample.referenceWordCount * 2,
+              keyTermCount: originalSample.keyTermCount * 2,
+              keyTermMatches: originalSample.keyTermMatches * 2,
+              wordErrorRate: 0.5,
+              keyTermAccuracy: 0.5,
+              samples: [originalSample, duplicate],
+            },
+          },
+        },
+      ],
+      ['provider-a'],
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      'provider-a: duplicate accuracy sample id: case-one',
+      'provider-a: aggregate word error rate does not match sample evidence',
+      'provider-a: aggregate technical-term accuracy does not match sample evidence',
     ]));
   });
 
