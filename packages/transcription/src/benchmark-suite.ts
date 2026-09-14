@@ -28,7 +28,7 @@ function normalizedNonEmpty(value: string): string | null {
 
 function normalizedSha256(value: string): string | null {
   const normalized = value.trim();
-  return /^[a-f0-9]{64}$/.test(normalized) ? normalized : null;
+  return normalized === value && /^[a-f0-9]{64}$/.test(value) ? value : null;
 }
 
 export function assessTranscriptBenchmarkSuite(
@@ -96,7 +96,7 @@ export function assessTranscriptBenchmarkSuite(
     }
 
     if (!candidateFixtureFingerprintSha256) {
-      reasons.push(`${providerId}: fixtureFingerprintSha256 must be a lowercase SHA-256 digest`);
+      reasons.push(`${providerId}: fixtureFingerprintSha256 must be a canonical lowercase SHA-256 digest`);
     } else if (fixtureFingerprintSha256 === null) {
       fixtureFingerprintSha256 = candidateFixtureFingerprintSha256;
     } else if (candidateFixtureFingerprintSha256 !== fixtureFingerprintSha256) {
