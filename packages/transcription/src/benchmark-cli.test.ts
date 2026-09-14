@@ -92,15 +92,21 @@ describe('benchmark CLI', () => {
     expect(JSON.stringify(providers)).not.toContain('secret');
   });
 
-  it('parses paths and validates the optional final timeout', () => {
-    const options = parseBenchmarkCliArgs(['fixtures/manifest.json', 'results/run.json', '12000']);
+  it('requires provenance evidence and validates the optional final timeout', () => {
+    const options = parseBenchmarkCliArgs([
+      'fixtures/manifest.json',
+      'fixtures/audio-evidence.json',
+      'results/run.json',
+      '12000',
+    ]);
     expect(options.manifestPath).toMatch(/fixtures\/manifest\.json$/);
+    expect(options.evidencePath).toMatch(/fixtures\/audio-evidence\.json$/);
     expect(options.outputPath).toMatch(/results\/run\.json$/);
     expect(options.finalTimeoutMs).toBe(12_000);
 
-    expect(() => parseBenchmarkCliArgs(['manifest.json', 'result.json', '0'])).toThrow(
+    expect(() => parseBenchmarkCliArgs(['manifest.json', 'evidence.json', 'result.json', '0'])).toThrow(
       /positive finite/,
     );
-    expect(() => parseBenchmarkCliArgs(['manifest.json'])).toThrow(/usage/);
+    expect(() => parseBenchmarkCliArgs(['manifest.json', 'result.json'])).toThrow(/usage/);
   });
 });
