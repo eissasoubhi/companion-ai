@@ -21,6 +21,7 @@ export interface CaptureStartupMetric {
 
 export interface CaptureSessionOptions {
   readonly language?: string | undefined;
+  readonly cleanupTimeoutMs?: number | undefined;
   readonly onDegraded?: (
     source: LiveAudioSource,
     reason: CaptureSessionDegradedReason,
@@ -48,6 +49,9 @@ interface CaptureSessionDependencies {
   ) => Promise<LiveAudioStreamHandle>;
   readonly now?: () => number;
 }
+
+const DEFAULT_CLEANUP_TIMEOUT_MS = 2_000;
+const MAX_CLEANUP_TIMEOUT_MS = 10_000;
 
 function defaultDependencies(): CaptureSessionDependencies {
   return {
@@ -91,10 +95,45 @@ function safeDuration(startedAt: number, finishedAt: number): number {
   return Number.isFinite(duration) ? Math.max(0, duration) : 0;
 }
 
+function normalizedCleanupTimeoutMs(value: number | undefined): number {
+  const timeoutMs = value ?? DEFAULT_CLEANUP_TIMEOUT_MS;
+  if (
+    !Number.isFinite(timeoutMs) ||
+    timeoutMs <= 0 ||
+    timeoutMs > MAX_CLEANUP_TIMEOUT_MS
+  ) {
+    throw new RangeError(
+      `cleanupTimeoutMs must be a finite number between 1 and ${MAX_CLEANUP_TIMEOUT_MS}.`,
+    );
+  }
+  return timeoutMs;
+}
+
+async function runBoundedCleanup(
+  action: () => Promise<unknown>,
+  label: string,
+  timeoutMs: number,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.resolve().then(action),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms.`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 export async function startCaptureSession(
   options: CaptureSessionOptions = {},
   dependencies: CaptureSessionDependencies = defaultDependencies(),
 ): Promise<CaptureSessionHandle> {
+  const cleanupTimeoutMs = normalizedCleanupTimeoutMs(options.cleanupTimeoutMs);
   let localStream: MediaStream | undefined;
   let remoteStream: MediaStream | undefined;
   let localHandle: LiveAudioStreamHandle | undefined;
@@ -145,13 +184,31 @@ export async function startCaptureSession(
     stopping = (async () => {
       const operations: Promise<unknown>[] = [];
 
-      if (localHandle) operations.push(localHandle.stop());
-      else stopRawStream(localStream);
+      if (localHandle) {
+        operations.push(
+          runBoundedCleanup(() => localHandle!.stop(), 'Local capture cleanup', cleanupTimeoutMs),
+        );
+      } else {
+        stopRawStream(localStream);
+      }
 
-      if (remoteHandle) operations.push(remoteHandle.stop());
-      else stopRawStream(remoteStream);
+      if (remoteHandle) {
+        operations.push(
+          runBoundedCleanup(() => remoteHandle!.stop(), 'Remote capture cleanup', cleanupTimeoutMs),
+        );
+      } else {
+        stopRawStream(remoteStream);
+      }
 
-      if (transcriptionStarted) operations.push(dependencies.stopTranscription());
+      if (transcriptionStarted) {
+        operations.push(
+          runBoundedCleanup(
+            () => dependencies.stopTranscription(),
+            'Transcription cleanup',
+            cleanupTimeoutMs,
+          ),
+        );
+      }
 
       const results = await Promise.allSettled(operations);
       const error = firstRejectedReason(results);
