@@ -10,28 +10,11 @@ function evidence(target: CaptureValidationTarget, recordedAt = '2026-09-14T08:0
   return {
     schemaVersion: 1,
     recordedAt,
-    platform: {
-      os: 'macos',
-      version: '15.6.1',
-      arch: 'arm64',
-    },
-    app: {
-      target,
-      version: 'test-version',
-    },
+    platform: { os: 'macos', version: '15.6.1', arch: 'arm64' },
+    app: { target, version: 'test-version' },
     capture: {
-      local: {
-        opened: true,
-        liveTrack: true,
-        signalDetected: true,
-        startupLatencyMs: 125,
-      },
-      remote: {
-        opened: true,
-        liveTrack: true,
-        signalDetected: true,
-        startupLatencyMs: 240,
-      },
+      local: { opened: true, liveTrack: true, signalDetected: true, startupLatencyMs: 125 },
+      remote: { opened: true, liveTrack: true, signalDetected: true, startupLatencyMs: 240 },
     },
     rawAudioPersisted: false,
   };
@@ -41,10 +24,7 @@ describe('parseCaptureValidationEvidence', () => {
   it('accepts explicit local and remote proof without raw audio persistence', () => {
     expect(parseCaptureValidationEvidence(evidence('browser-media'))).toMatchObject({
       app: { target: 'browser-media' },
-      capture: {
-        local: { signalDetected: true },
-        remote: { signalDetected: true },
-      },
+      capture: { local: { signalDetected: true }, remote: { signalDetected: true } },
       rawAudioPersisted: false,
     });
   });
@@ -52,25 +32,16 @@ describe('parseCaptureValidationEvidence', () => {
   it('fails closed when either capture channel is not actually verified', () => {
     const value = evidence('zoom');
     value.capture.remote.signalDetected = false;
-
-    expect(() => parseCaptureValidationEvidence(value)).toThrow(
-      'capture.remote must prove opened capture, a live track and detected signal.',
-    );
+    expect(() => parseCaptureValidationEvidence(value)).toThrow('capture.remote must prove opened capture, a live track and detected signal.');
   });
 
   it('rejects embedded or unexpected fields so raw audio cannot be smuggled into evidence', () => {
-    const value = {
-      ...evidence('browser-media'),
-      rawAudioBase64: 'AAAA',
-    };
-
-    expect(() => parseCaptureValidationEvidence(value)).toThrow('invalid shape');
+    expect(() => parseCaptureValidationEvidence({ ...evidence('browser-media'), rawAudioBase64: 'AAAA' })).toThrow('invalid shape');
   });
 
   it('rejects implausible or unbounded startup latency values', () => {
     const value = evidence('browser-media');
     value.capture.local.startupLatencyMs = 30_001;
-
     expect(() => parseCaptureValidationEvidence(value)).toThrow('startupLatencyMs');
   });
 });
@@ -81,7 +52,6 @@ describe('buildCaptureValidationMatrix', () => {
       evidence('browser-media', '2026-09-14T08:00:00.000Z'),
       evidence('google-meet', '2026-09-14T08:05:00.000Z'),
     ]);
-
     expect(partial.ready).toBe(false);
     expect(partial.missingTargets).toEqual(['microsoft-teams', 'zoom']);
 
@@ -91,23 +61,28 @@ describe('buildCaptureValidationMatrix', () => {
       evidence('microsoft-teams', '2026-09-14T08:10:00.000Z'),
       evidence('zoom', '2026-09-14T08:15:00.000Z'),
     ]);
-
     expect(complete.ready).toBe(true);
     expect(complete.missingTargets).toEqual([]);
   });
 
   it('rejects duplicate targets instead of silently replacing evidence', () => {
-    expect(() =>
-      buildCaptureValidationMatrix([evidence('browser-media'), evidence('browser-media')]),
-    ).toThrow('Duplicate capture validation target: browser-media.');
+    expect(() => buildCaptureValidationMatrix([evidence('browser-media'), evidence('browser-media')])).toThrow('Duplicate capture validation target: browser-media.');
   });
 
   it('enforces the acceptance order: browser media first, then conferencing apps', () => {
-    expect(() =>
-      buildCaptureValidationMatrix([
-        evidence('browser-media', '2026-09-14T08:10:00.000Z'),
-        evidence('google-meet', '2026-09-14T08:05:00.000Z'),
-      ]),
-    ).toThrow('browser-media validation must be recorded before Meet, Teams and Zoom.');
+    expect(() => buildCaptureValidationMatrix([
+      evidence('browser-media', '2026-09-14T08:10:00.000Z'),
+      evidence('google-meet', '2026-09-14T08:05:00.000Z'),
+    ])).toThrow('browser-media validation must be recorded before Meet, Teams and Zoom.');
+  });
+
+  it('rejects a matrix assembled from different macOS environments', () => {
+    const zoom = evidence('zoom', '2026-09-14T08:15:00.000Z');
+    zoom.platform.version = '16.0';
+
+    expect(() => buildCaptureValidationMatrix([
+      evidence('browser-media', '2026-09-14T08:00:00.000Z'),
+      zoom,
+    ])).toThrow('same macOS version and architecture');
   });
 });
