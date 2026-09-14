@@ -1,5 +1,7 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 
+import type { IpcSenderGuard } from './ipc-security.js';
+
 export type AudioIpcSource = 'local' | 'remote';
 
 export interface AudioIpcChunk {
@@ -101,11 +103,12 @@ export function parseAudioIpcChunk(value: unknown): AudioIpcChunk {
   };
 }
 
-export function registerAudioIpcHandlers(): AudioIpcController {
+export function registerAudioIpcHandlers(assertTrustedSender: IpcSenderGuard): AudioIpcController {
   let sink: AudioIpcSink | undefined;
   const inFlight: Record<AudioIpcSource, number> = { local: 0, remote: 0 };
 
-  const handler = async (_event: IpcMainInvokeEvent, raw: unknown): Promise<void> => {
+  const handler = async (event: IpcMainInvokeEvent, raw: unknown): Promise<void> => {
+    assertTrustedSender(event);
     const chunk = parseAudioIpcChunk(raw);
     const currentSink = sink;
     if (!currentSink) {
