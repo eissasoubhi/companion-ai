@@ -3,6 +3,8 @@ import { readFile, stat } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
+import type { BenchmarkAudioEvidence } from './benchmark-audio-evidence.js';
+import { assertBenchmarkAudioEvidenceMatchesFixtureManifest } from './benchmark-audio-evidence-loader.js';
 import {
   assertTranscriptBenchmarkFixtureManifest,
   type TranscriptBenchmarkFixtureManifest,
@@ -16,6 +18,7 @@ import type {
 export interface TranscriptBenchmarkFixtureLoaderOptions {
   readonly chunkDurationMs?: number | undefined;
   readonly maxFixtureBytes?: number | undefined;
+  readonly audioEvidence?: readonly BenchmarkAudioEvidence[] | undefined;
 }
 
 export interface LoadedTranscriptBenchmarkFixtureSet {
@@ -211,6 +214,9 @@ export async function loadTranscriptBenchmarkFixtureSet(
   const root = dirname(absoluteManifestPath);
   const manifest = parseManifest(await readFile(absoluteManifestPath, 'utf8'));
   assertTranscriptBenchmarkFixtureManifest(manifest, expectedCaseIds);
+  if (options.audioEvidence) {
+    assertBenchmarkAudioEvidenceMatchesFixtureManifest(options.audioEvidence, manifest);
+  }
 
   const fixtures: TranscriptBenchmarkAudioFixture[] = [];
   for (const entry of manifest.entries) {
