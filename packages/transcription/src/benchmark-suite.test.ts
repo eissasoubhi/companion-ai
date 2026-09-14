@@ -16,6 +16,8 @@ const corpus = [
   },
 ] as const satisfies readonly TranscriptBenchmarkCorpusCase[];
 
+const fixtureFingerprintSha256 = 'a'.repeat(64);
+
 function latency(
   providerId: string,
   source: 'local' | 'remote',
@@ -36,11 +38,16 @@ function latency(
 
 function candidate(
   providerId: string,
-  overrides: { corpusVersion?: string; fixtureSetId?: string } = {},
+  overrides: {
+    corpusVersion?: string;
+    fixtureSetId?: string;
+    fixtureFingerprintSha256?: string;
+  } = {},
 ) {
   return {
     corpusVersion: overrides.corpusVersion ?? 'v1',
     fixtureSetId: overrides.fixtureSetId ?? 'synthetic-interview-audio-v1',
+    fixtureFingerprintSha256: overrides.fixtureFingerprintSha256 ?? fixtureFingerprintSha256,
     report: summarizeTranscriptBenchmarkRun({
       providerId,
       corpus,
@@ -70,7 +77,7 @@ function candidate(
 }
 
 describe('assessTranscriptBenchmarkSuite', () => {
-  it('is ready only when required providers use the same corpus and fixture set', () => {
+  it('is ready only when required providers use the same exact fixture bytes', () => {
     const result = assessTranscriptBenchmarkSuite(
       [candidate('deepgram'), candidate('assemblyai'), candidate('openai')],
       ['deepgram', 'assemblyai', 'openai'],
@@ -83,11 +90,12 @@ describe('assessTranscriptBenchmarkSuite', () => {
       providerIds: ['deepgram', 'assemblyai', 'openai'],
       corpusVersion: 'v1',
       fixtureSetId: 'synthetic-interview-audio-v1',
+      fixtureFingerprintSha256,
       sampleCount: 1,
     });
   });
 
-  it('fails closed when providers are benchmarked against different fixtures', () => {
+  it('fails closed when providers are benchmarked against different fixture sets', () => {
     const result = assessTranscriptBenchmarkSuite(
       [
         candidate('deepgram'),
@@ -99,6 +107,34 @@ describe('assessTranscriptBenchmarkSuite', () => {
     expect(result.ready).toBe(false);
     expect(result.reasons).toContain(
       'assemblyai: fixtureSetId different-audio does not match synthetic-interview-audio-v1',
+    );
+  });
+
+  it('fails closed when fixture bytes differ despite matching fixture set ids', () => {
+    const differentFingerprint = 'b'.repeat(64);
+    const result = assessTranscriptBenchmarkSuite(
+      [
+        candidate('deepgram'),
+        candidate('assemblyai', { fixtureFingerprintSha256: differentFingerprint }),
+      ],
+      ['deepgram', 'assemblyai'],
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons).toContain(
+      `assemblyai: fixtureFingerprintSha256 ${differentFingerprint} does not match ${fixtureFingerprintSha256}`,
+    );
+  });
+
+  it('rejects malformed or non-canonical fixture fingerprints', () => {
+    const result = assessTranscriptBenchmarkSuite(
+      [candidate('deepgram', { fixtureFingerprintSha256: 'A'.repeat(64) })],
+      ['deepgram'],
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.reasons).toContain(
+      'deepgram: fixtureFingerprintSha256 must be a lowercase SHA-256 digest',
     );
   });
 
