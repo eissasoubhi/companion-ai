@@ -11,6 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "benchmark:stt": "node dist/benchmark-cli.js",
     "benchmark:stt:reconnect": "node dist/benchmark-live-reconnect-cli.js",
+    "benchmark:stt:operational": "node dist/benchmark-live-operational-cli.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
