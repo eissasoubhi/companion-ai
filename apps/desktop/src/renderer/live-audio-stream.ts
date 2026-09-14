@@ -108,6 +108,17 @@ export async function startLiveAudioStream(
     if (context.state !== 'closed') await context.close();
   }
 
+  function failClosed(error: unknown): void {
+    if (stopped) return;
+    try {
+      options.onDegraded?.('write-failed', error);
+    } catch {
+      // Diagnostics callbacks must never escape into the realtime audio callback.
+    } finally {
+      void stop().catch(() => undefined);
+    }
+  }
+
   async function drain(): Promise<void> {
     if (draining || stopped) return;
     draining = true;
@@ -118,8 +129,7 @@ export async function startLiveAudioStream(
         try {
           await dependencies.writeChunk(chunk);
         } catch (error) {
-          options.onDegraded?.('write-failed', error);
-          await stop();
+          failClosed(error);
           break;
         }
       }
@@ -139,31 +149,35 @@ export async function startLiveAudioStream(
   processor.onaudioprocess = (event) => {
     if (stopped) return;
 
-    const channels: Float32Array[] = [];
-    for (let channel = 0; channel < event.inputBuffer.numberOfChannels; channel += 1) {
-      channels.push(new Float32Array(event.inputBuffer.getChannelData(channel)));
+    try {
+      const channels: Float32Array[] = [];
+      for (let channel = 0; channel < event.inputBuffer.numberOfChannels; channel += 1) {
+        channels.push(new Float32Array(event.inputBuffer.getChannelData(channel)));
+      }
+      if (channels.length === 0) return;
+
+      const mono = downmixToMono(channels);
+      const normalized = resampleMono(mono, context.sampleRate, targetSampleRateHz);
+      const frames = encoder.push(normalized, dependencies.now());
+
+      for (const frame of frames) {
+        const result = queue.push({
+          sessionId: options.sessionId,
+          source: options.source,
+          sequence: frame.sequence,
+          capturedAtMs: frame.startedAtMs,
+          sampleRateHz: frame.sampleRateHz,
+          channels: frame.channels,
+          encoding: 'pcm-s16le',
+          data: frame.data,
+        });
+        if (result.dropped) droppedFrames += 1;
+      }
+
+      void drain();
+    } catch (error) {
+      failClosed(error);
     }
-    if (channels.length === 0) return;
-
-    const mono = downmixToMono(channels);
-    const normalized = resampleMono(mono, context.sampleRate, targetSampleRateHz);
-    const frames = encoder.push(normalized, dependencies.now());
-
-    for (const frame of frames) {
-      const result = queue.push({
-        sessionId: options.sessionId,
-        source: options.source,
-        sequence: frame.sequence,
-        capturedAtMs: frame.startedAtMs,
-        sampleRateHz: frame.sampleRateHz,
-        channels: frame.channels,
-        encoding: 'pcm-s16le',
-        data: frame.data,
-      });
-      if (result.dropped) droppedFrames += 1;
-    }
-
-    void drain();
   };
 
   try {
