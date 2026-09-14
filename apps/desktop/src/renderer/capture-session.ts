@@ -225,7 +225,11 @@ export async function startCaptureSession(
   ): void => {
     if (degradationHandled) return;
     degradationHandled = true;
-    options.onDegraded?.(source, reason, error);
+    try {
+      options.onDegraded?.(source, reason, error);
+    } catch {
+      // Diagnostics callbacks must never prevent fail-closed capture cleanup.
+    }
 
     if (!ready) {
       degradedDuringStartup = { source, reason };
