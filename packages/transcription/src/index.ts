@@ -8,6 +8,7 @@ export * from './benchmark-execution.js';
 export * from './benchmark-fixture-loader.js';
 export * from './benchmark-fixture-manifest.js';
 export * from './benchmark-metrics.js';
+export * from './benchmark-operational-bundle.js';
 export * from './benchmark-operational-evidence.js';
 export * from './benchmark-operational-executor.js';
 export * from './benchmark-operational-runner.js';
