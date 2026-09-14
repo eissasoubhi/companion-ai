@@ -44,6 +44,32 @@ describe('parseCaptureValidationEvidence', () => {
     value.capture.local.startupLatencyMs = 30_001;
     expect(() => parseCaptureValidationEvidence(value)).toThrow('startupLatencyMs');
   });
+
+  it('rejects evidence dated beyond the bounded clock-skew window', () => {
+    const nowMs = Date.parse('2026-09-14T20:00:00.000Z');
+    expect(() =>
+      parseCaptureValidationEvidence(
+        evidence('browser-media', '2026-09-14T20:05:00.001Z'),
+        nowMs,
+      ),
+    ).toThrow('recordedAt must not be in the future beyond the allowed clock skew.');
+  });
+
+  it('accepts evidence exactly at the allowed clock-skew boundary', () => {
+    const nowMs = Date.parse('2026-09-14T20:00:00.000Z');
+    expect(
+      parseCaptureValidationEvidence(
+        evidence('browser-media', '2026-09-14T20:05:00.000Z'),
+        nowMs,
+      ).recordedAt,
+    ).toBe('2026-09-14T20:05:00.000Z');
+  });
+
+  it('rejects a non-finite validation clock', () => {
+    expect(() => parseCaptureValidationEvidence(evidence('browser-media'), Number.NaN)).toThrow(
+      'nowMs must be finite.',
+    );
+  });
 });
 
 describe('buildCaptureValidationMatrix', () => {
@@ -84,5 +110,18 @@ describe('buildCaptureValidationMatrix', () => {
       evidence('browser-media', '2026-09-14T08:00:00.000Z'),
       zoom,
     ])).toThrow('same macOS version and architecture');
+  });
+
+  it('uses one validation clock for the whole matrix', () => {
+    const nowMs = Date.parse('2026-09-14T20:00:00.000Z');
+    expect(() =>
+      buildCaptureValidationMatrix(
+        [
+          evidence('browser-media', '2026-09-14T20:00:00.000Z'),
+          evidence('zoom', '2026-09-14T20:05:00.001Z'),
+        ],
+        nowMs,
+      ),
+    ).toThrow('recordedAt must not be in the future beyond the allowed clock skew.');
   });
 });
