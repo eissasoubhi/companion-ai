@@ -6,6 +6,7 @@ import type { TranscriptBenchmarkOperationalBundle } from './benchmark-operation
 
 const fingerprint = 'a'.repeat(64);
 const latencySummary = { count: 1, p50Ms: 20, p95Ms: 40, maxMs: 40, meanMs: 30 } as const;
+const allLatencySummary = { ...latencySummary, count: 2 } as const;
 
 function batch(): TranscriptBenchmarkBatchResult {
   const report = {
@@ -20,7 +21,7 @@ function batch(): TranscriptBenchmarkBatchResult {
       keyTermAccuracy: 1,
       samples: [{ id: 'case-1', wordErrorRate: 0, keyTermAccuracy: 1, keyTermCount: 1, keyTermMatches: 1, referenceWordCount: 2 }],
     },
-    latency: { all: latencySummary, partial: latencySummary, final: latencySummary, local: latencySummary, remote: latencySummary },
+    latency: { all: allLatencySummary, partial: latencySummary, final: latencySummary, local: latencySummary, remote: latencySummary },
   } as const;
 
   return {
