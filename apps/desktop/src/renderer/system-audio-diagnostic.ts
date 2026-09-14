@@ -7,8 +7,20 @@ export type SystemAudioDiagnosticState =
   | 'blocked'
   | 'error';
 
+export type SystemAudioCapabilityState = 'unknown' | 'supported' | 'unsupported';
+export type SystemAudioCaptureState =
+  | 'not-attempted'
+  | 'denied'
+  | 'unavailable'
+  | 'no-audio-track'
+  | 'no-signal'
+  | 'verified'
+  | 'failed';
+
 export interface SystemAudioDiagnosticResult {
   readonly state: Exclude<SystemAudioDiagnosticState, 'idle' | 'checking'>;
+  readonly capability: SystemAudioCapabilityState;
+  readonly capture: SystemAudioCaptureState;
   readonly signalDetected?: boolean | undefined;
   readonly message: string;
   readonly action?: string | undefined;
@@ -28,13 +40,18 @@ function defaultDependencies(): SystemAudioDependencies {
   };
 }
 
-export function describeSystemAudioError(error: unknown): SystemAudioDiagnosticResult {
+export function describeSystemAudioError(
+  error: unknown,
+  capability: SystemAudioCapabilityState = 'unknown',
+): SystemAudioDiagnosticResult {
   if (error instanceof DOMException) {
     switch (error.name) {
       case 'NotAllowedError':
       case 'SecurityError':
         return {
           state: 'blocked',
+          capability,
+          capture: 'denied',
           message: 'System audio capture was cancelled or denied.',
           action:
             'Run diagnostics again, approve the macOS sharing prompt and include system audio in the selected source.',
@@ -42,12 +59,16 @@ export function describeSystemAudioError(error: unknown): SystemAudioDiagnosticR
       case 'NotFoundError':
         return {
           state: 'blocked',
+          capability,
+          capture: 'unavailable',
           message: 'No shareable desktop source was available.',
           action: 'Make sure a screen or window is available, then run diagnostics again.',
         };
       case 'AbortError':
         return {
           state: 'error',
+          capability,
+          capture: 'failed',
           message: 'System audio capture stopped before the diagnostic completed.',
           action: 'Run diagnostics again and keep the selected source shared until the check finishes.',
         };
@@ -56,6 +77,8 @@ export function describeSystemAudioError(error: unknown): SystemAudioDiagnosticR
 
   return {
     state: 'error',
+    capability,
+    capture: 'failed',
     message: 'The system audio diagnostic failed unexpectedly.',
     action: 'Run diagnostics again. If it persists, inspect the diagnostic logs.',
   };
@@ -64,12 +87,17 @@ export function describeSystemAudioError(error: unknown): SystemAudioDiagnosticR
 export async function runSystemAudioDiagnostic(
   dependencies: SystemAudioDependencies = defaultDependencies(),
 ): Promise<SystemAudioDiagnosticResult> {
+  let capabilityState: SystemAudioCapabilityState = 'unknown';
+
   try {
     const capability = await dependencies.getCapability();
+    capabilityState = capability.supported ? 'supported' : 'unsupported';
 
     if (!capability.supported) {
       return {
         state: 'blocked',
+        capability: capabilityState,
+        capture: 'not-attempted',
         message: capability.reason ?? 'System audio capture is not supported by this build.',
         action:
           capability.platform === 'darwin'
@@ -88,6 +116,8 @@ export async function runSystemAudioDiagnostic(
       if (!audioTrack || audioTrack.readyState !== 'live') {
         return {
           state: 'blocked',
+          capability: capabilityState,
+          capture: 'no-audio-track',
           message: 'The selected source did not provide a live system-audio track.',
           action:
             'Run diagnostics again and choose a source with system audio enabled in the macOS sharing picker.',
@@ -103,6 +133,8 @@ export async function runSystemAudioDiagnostic(
       if (!signalDetected) {
         return {
           state: 'blocked',
+          capability: capabilityState,
+          capture: 'no-signal',
           signalDetected: false,
           message: 'A system-audio track opened, but no audio samples were detected.',
           action:
@@ -112,6 +144,8 @@ export async function runSystemAudioDiagnostic(
 
       return {
         state: 'ready',
+        capability: capabilityState,
+        capture: 'verified',
         signalDetected: true,
         message: 'System audio opened successfully and a live audio signal was detected.',
       };
@@ -119,6 +153,6 @@ export async function runSystemAudioDiagnostic(
       for (const track of stream.getTracks()) track.stop();
     }
   } catch (error) {
-    return describeSystemAudioError(error);
+    return describeSystemAudioError(error, capabilityState);
   }
 }
