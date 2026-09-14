@@ -51,7 +51,9 @@ export async function loadBenchmarkAudioEvidenceFile(
   if (!metadata.isFile()) throw new Error('benchmark audio evidence path is not a regular file');
   if (metadata.size > maxBytes) throw new Error(`benchmark audio evidence exceeds byte limit: ${metadata.size} > ${maxBytes}`);
 
-  return parseBenchmarkAudioEvidence(await readFile(absolutePath, 'utf8'));
+  const content = await readFile(absolutePath);
+  if (content.byteLength > maxBytes) throw new Error(`benchmark audio evidence exceeds byte limit after read: ${content.byteLength} > ${maxBytes}`);
+  return parseBenchmarkAudioEvidence(content.toString('utf8'));
 }
 
 export function assertBenchmarkAudioEvidenceMatchesFixtureManifest(
