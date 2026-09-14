@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 
 import {
@@ -14,6 +14,7 @@ import type {
 
 export interface TranscriptBenchmarkFixtureLoaderOptions {
   readonly chunkDurationMs?: number | undefined;
+  readonly maxFixtureBytes?: number | undefined;
 }
 
 export interface LoadedTranscriptBenchmarkFixtureSet {
@@ -23,6 +24,7 @@ export interface LoadedTranscriptBenchmarkFixtureSet {
 
 const DEFAULT_CHUNK_DURATION_MS = 100;
 export const MAX_TRANSCRIPT_BENCHMARK_CHUNK_BYTES = 64 * 1024;
+export const DEFAULT_MAX_TRANSCRIPT_BENCHMARK_FIXTURE_BYTES = 32 * 1024 * 1024;
 
 function normalizedChunkDurationMs(value: number | undefined): number {
   const durationMs = value ?? DEFAULT_CHUNK_DURATION_MS;
@@ -30,6 +32,14 @@ function normalizedChunkDurationMs(value: number | undefined): number {
     throw new RangeError('chunkDurationMs must be a positive finite number');
   }
   return durationMs;
+}
+
+function normalizedMaxFixtureBytes(value: number | undefined): number {
+  const maxFixtureBytes = value ?? DEFAULT_MAX_TRANSCRIPT_BENCHMARK_FIXTURE_BYTES;
+  if (!Number.isSafeInteger(maxFixtureBytes) || maxFixtureBytes <= 0) {
+    throw new RangeError('maxFixtureBytes must be a positive safe integer');
+  }
+  return maxFixtureBytes;
 }
 
 function parseManifest(content: string): TranscriptBenchmarkFixtureManifest {
@@ -66,6 +76,23 @@ function assertInsideRoot(root: string, filePath: string, caseId: string): void 
   if (filePath !== root && !filePath.startsWith(`${root}${sep}`)) {
     throw new Error(`benchmark fixture resolved outside manifest directory: ${caseId}`);
   }
+}
+
+async function readBoundedFixture(
+  filePath: string,
+  caseId: string,
+  maxFixtureBytes: number,
+): Promise<Uint8Array> {
+  const metadata = await stat(filePath);
+  if (!metadata.isFile()) {
+    throw new Error(`benchmark fixture path is not a regular file: ${caseId}`);
+  }
+  if (metadata.size > maxFixtureBytes) {
+    throw new Error(
+      `benchmark fixture exceeds byte limit: ${caseId} (${metadata.size} > ${maxFixtureBytes})`,
+    );
+  }
+  return readFile(filePath);
 }
 
 function chunkPcmFixture(
@@ -113,6 +140,7 @@ export async function loadTranscriptBenchmarkFixtureSet(
   }
 
   const chunkDurationMs = normalizedChunkDurationMs(options.chunkDurationMs);
+  const maxFixtureBytes = normalizedMaxFixtureBytes(options.maxFixtureBytes);
   const absoluteManifestPath = resolve(manifestPath);
   const root = dirname(absoluteManifestPath);
   const manifest = parseManifest(await readFile(absoluteManifestPath, 'utf8'));
@@ -123,7 +151,7 @@ export async function loadTranscriptBenchmarkFixtureSet(
     const absoluteFixturePath = resolve(root, entry.path);
     assertInsideRoot(root, absoluteFixturePath, entry.caseId);
 
-    const file = await readFile(absoluteFixturePath);
+    const file = await readBoundedFixture(absoluteFixturePath, entry.caseId, maxFixtureBytes);
     const actualHash = createHash('sha256').update(file).digest('hex');
     if (actualHash !== entry.sha256) {
       throw new Error(`benchmark fixture sha256 mismatch: ${entry.caseId}`);
