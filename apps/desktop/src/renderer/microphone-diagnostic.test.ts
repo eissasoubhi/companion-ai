@@ -50,7 +50,9 @@ describe('microphone diagnostics', () => {
       requestPermission: vi.fn(async () => 'granted' as MediaAccessStatus),
       getUserMedia: vi.fn(async () => stream),
       enumerateDevices: vi.fn(async () => []),
-      createAudioContext: vi.fn(),
+      createAudioContext: vi.fn(() => {
+        throw new Error('audio context should not be created without an audio track');
+      }),
     });
 
     expect(result.state).toBe('blocked');
