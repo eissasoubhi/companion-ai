@@ -45,14 +45,10 @@ function resampleMono(
   inputRateHz: number,
   outputRateHz: number,
 ): Float32Array {
-  if (inputRateHz === outputRateHz || samples.length === 0) {
-    return new Float32Array(samples);
-  }
-
+  if (inputRateHz === outputRateHz || samples.length === 0) return new Float32Array(samples);
   const outputLength = Math.max(1, Math.round((samples.length * outputRateHz) / inputRateHz));
   const output = new Float32Array(outputLength);
   const ratio = inputRateHz / outputRateHz;
-
   for (let index = 0; index < outputLength; index += 1) {
     const position = index * ratio;
     const left = Math.min(samples.length - 1, Math.floor(position));
@@ -62,7 +58,6 @@ function resampleMono(
     const rightValue = samples[right] ?? leftValue;
     output[index] = leftValue + (rightValue - leftValue) * fraction;
   }
-
   return output;
 }
 
@@ -74,23 +69,13 @@ export async function startLiveAudioStream(
   if (!track) throw new Error(`No live ${options.source} audio track is available.`);
   if (!options.sessionId.trim()) throw new Error('sessionId is required.');
   const liveTrack = track;
-
   const targetSampleRateHz = options.targetSampleRateHz ?? DEFAULT_TARGET_SAMPLE_RATE_HZ;
   const frameDurationMs = options.frameDurationMs ?? DEFAULT_FRAME_DURATION_MS;
-  const queue = new BoundedQueue<RendererAudioChunk>(
-    options.queueCapacity ?? DEFAULT_QUEUE_CAPACITY,
-  );
-  const encoder = new FixedFramePcm16Encoder({
-    sampleRateHz: targetSampleRateHz,
-    frameDurationMs,
-  });
-  const context = dependencies.createAudioContext({
-    latencyHint: 'interactive',
-    sampleRate: targetSampleRateHz,
-  });
+  const queue = new BoundedQueue<RendererAudioChunk>(options.queueCapacity ?? DEFAULT_QUEUE_CAPACITY);
+  const encoder = new FixedFramePcm16Encoder({ sampleRateHz: targetSampleRateHz, frameDurationMs });
+  const context = dependencies.createAudioContext({ latencyHint: 'interactive', sampleRate: targetSampleRateHz });
   const sourceNode = context.createMediaStreamSource(options.stream);
   const processor = context.createScriptProcessor(512, 2, 1);
-
   let stopped = false;
   let draining = false;
   let droppedFrames = 0;
@@ -98,25 +83,29 @@ export async function startLiveAudioStream(
   async function stop(): Promise<void> {
     if (stopped) return;
     stopped = true;
-    liveTrack.removeEventListener('ended', onTrackEnded);
+    const errors: unknown[] = [];
+    const attempt = (action: () => void): void => {
+      try { action(); } catch (error) { errors.push(error); }
+    };
+
+    attempt(() => liveTrack.removeEventListener('ended', onTrackEnded));
     processor.onaudioprocess = null;
     queue.clear();
     encoder.reset();
-    sourceNode.disconnect();
-    processor.disconnect();
-    for (const streamTrack of options.stream.getTracks()) streamTrack.stop();
-    if (context.state !== 'closed') await context.close();
+    attempt(() => sourceNode.disconnect());
+    attempt(() => processor.disconnect());
+    for (const streamTrack of options.stream.getTracks()) attempt(() => streamTrack.stop());
+    if (context.state !== 'closed') {
+      try { await context.close(); } catch (error) { errors.push(error); }
+    }
+    if (errors.length > 0) throw errors[0];
   }
 
   function failClosed(error: unknown): void {
     if (stopped) return;
-    try {
-      options.onDegraded?.('write-failed', error);
-    } catch {
-      // Diagnostics callbacks must never escape into the realtime audio callback.
-    } finally {
-      void stop().catch(() => undefined);
-    }
+    try { options.onDegraded?.('write-failed', error); }
+    catch { /* Diagnostics callbacks must never escape into the realtime audio callback. */ }
+    finally { void stop().catch(() => undefined); }
   }
 
   async function drain(): Promise<void> {
@@ -126,45 +115,31 @@ export async function startLiveAudioStream(
       while (!stopped) {
         const chunk = queue.shift();
         if (!chunk) break;
-        try {
-          await dependencies.writeChunk(chunk);
-        } catch (error) {
-          failClosed(error);
-          break;
-        }
+        try { await dependencies.writeChunk(chunk); }
+        catch (error) { failClosed(error); break; }
       }
-    } finally {
-      draining = false;
-    }
+    } finally { draining = false; }
   }
 
   function onTrackEnded(): void {
     if (stopped) return;
-    try {
-      options.onDegraded?.('track-ended');
-    } catch {
-      // Diagnostics callbacks must never prevent fail-closed capture cleanup.
-    } finally {
-      void stop().catch(() => undefined);
-    }
+    try { options.onDegraded?.('track-ended'); }
+    catch { /* Diagnostics callbacks must never prevent fail-closed capture cleanup. */ }
+    finally { void stop().catch(() => undefined); }
   }
 
   liveTrack.addEventListener('ended', onTrackEnded, { once: true });
-
   processor.onaudioprocess = (event) => {
     if (stopped) return;
-
     try {
       const channels: Float32Array[] = [];
       for (let channel = 0; channel < event.inputBuffer.numberOfChannels; channel += 1) {
         channels.push(new Float32Array(event.inputBuffer.getChannelData(channel)));
       }
       if (channels.length === 0) return;
-
       const mono = downmixToMono(channels);
       const normalized = resampleMono(mono, context.sampleRate, targetSampleRateHz);
       const frames = encoder.push(normalized, dependencies.now());
-
       for (const frame of frames) {
         const result = queue.push({
           sessionId: options.sessionId,
@@ -178,11 +153,8 @@ export async function startLiveAudioStream(
         });
         if (result.dropped) droppedFrames += 1;
       }
-
       void drain();
-    } catch (error) {
-      failClosed(error);
-    }
+    } catch (error) { failClosed(error); }
   };
 
   try {
@@ -194,9 +166,5 @@ export async function startLiveAudioStream(
     throw error;
   }
 
-  return {
-    source: options.source,
-    droppedFrames: () => droppedFrames,
-    stop,
-  };
+  return { source: options.source, droppedFrames: () => droppedFrames, stop };
 }
