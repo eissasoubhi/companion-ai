@@ -85,4 +85,36 @@ describe('system audio diagnostics', () => {
     expect(result.message).toContain('did not provide');
     expect(stop).toHaveBeenCalledOnce();
   });
+
+  it('stops every acquired display track even when one track cleanup throws', async () => {
+    const brokenStop = vi.fn(() => {
+      throw new Error('track stop failed');
+    });
+    const healthyStop = vi.fn();
+    const stream = {
+      getAudioTracks: () => [],
+      getTracks: () => [
+        { stop: brokenStop } as unknown as MediaStreamTrack,
+        { stop: healthyStop } as unknown as MediaStreamTrack,
+      ],
+    } as unknown as MediaStream;
+
+    const result = await runSystemAudioDiagnostic({
+      getCapability: async () => ({
+        supported: true,
+        mode: 'macos-system-picker',
+        platform: 'darwin',
+        systemVersion: '15.0.0',
+      }),
+      getDisplayMedia: async () => stream,
+      createAudioContext: () => {
+        throw new Error('should not be called without a live audio track');
+      },
+    });
+
+    expect(result.state).toBe('blocked');
+    expect(result.capture).toBe('no-audio-track');
+    expect(brokenStop).toHaveBeenCalledOnce();
+    expect(healthyStop).toHaveBeenCalledOnce();
+  });
 });
