@@ -3,6 +3,27 @@ export interface AudioSignalOptions {
   readonly threshold?: number;
 }
 
+async function cleanupAudioSignalResources(
+  source: MediaStreamAudioSourceNode,
+  context: AudioContext,
+): Promise<void> {
+  let cleanupError: unknown;
+
+  try {
+    source.disconnect();
+  } catch (error) {
+    cleanupError = error;
+  }
+
+  try {
+    await context.close();
+  } catch (error) {
+    cleanupError ??= error;
+  }
+
+  if (cleanupError !== undefined) throw cleanupError;
+}
+
 export async function detectAudioSignal(
   stream: MediaStream,
   createAudioContext: () => AudioContext,
@@ -31,8 +52,7 @@ export async function detectAudioSignal(
       }
     }
   } finally {
-    source.disconnect();
-    await context.close();
+    await cleanupAudioSignalResources(source, context);
   }
 
   return signalDetected;
