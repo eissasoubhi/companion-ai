@@ -40,6 +40,17 @@ function defaultDependencies(): SystemAudioDependencies {
   };
 }
 
+function stopDiagnosticStream(stream: MediaStream): void {
+  for (const track of stream.getTracks()) {
+    try {
+      track.stop();
+    } catch {
+      // Diagnostic cleanup is best-effort: one broken display track must not leak
+      // the remaining tracks or replace an actionable diagnostic result.
+    }
+  }
+}
+
 export function describeSystemAudioError(
   error: unknown,
   capability: SystemAudioCapabilityState = 'unknown',
@@ -150,7 +161,7 @@ export async function runSystemAudioDiagnostic(
         message: 'System audio opened successfully and a live audio signal was detected.',
       };
     } finally {
-      for (const track of stream.getTracks()) track.stop();
+      stopDiagnosticStream(stream);
     }
   } catch (error) {
     return describeSystemAudioError(error, capabilityState);
