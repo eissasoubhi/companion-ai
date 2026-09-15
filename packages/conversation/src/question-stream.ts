@@ -72,6 +72,20 @@ function jaccard(left: ReadonlySet<string>, right: ReadonlySet<string>): number 
   return intersection / (left.size + right.size - intersection);
 }
 
+function validateConfig(config: QuestionStreamConfig): void {
+  if (!Number.isFinite(config.duplicateWindowMs) || config.duplicateWindowMs < 0) {
+    throw new RangeError('duplicateWindowMs must be a finite non-negative number');
+  }
+
+  if (
+    !Number.isFinite(config.rephraseSimilarityThreshold) ||
+    config.rephraseSimilarityThreshold < 0 ||
+    config.rephraseSimilarityThreshold > 1
+  ) {
+    throw new RangeError('rephraseSimilarityThreshold must be a finite number between 0 and 1');
+  }
+}
+
 /**
  * Converts finalized remote transcript segments into de-duplicated questions.
  * Local microphone transcripts are intentionally ignored: suggestions should be
@@ -95,6 +109,7 @@ export class QuestionStream {
         config.rephraseSimilarityThreshold ??
         defaultQuestionStreamConfig.rephraseSimilarityThreshold,
     };
+    validateConfig(this.#config);
     this.#dependencies = {
       now: dependencies.now ?? Date.now,
       createQuestionId:
