@@ -71,7 +71,13 @@ function defaultDependencies(): CaptureSessionDependencies {
 
 function stopRawStream(stream: MediaStream | undefined): void {
   if (!stream) return;
-  for (const track of stream.getTracks()) track.stop();
+  for (const track of stream.getTracks()) {
+    try {
+      track.stop();
+    } catch {
+      // Raw capture cleanup is best-effort: one broken track must not leak the others.
+    }
+  }
 }
 
 function hasLiveAudioTrack(stream: MediaStream | undefined): boolean {
