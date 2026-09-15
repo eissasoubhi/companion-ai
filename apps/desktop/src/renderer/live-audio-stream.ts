@@ -140,8 +140,13 @@ export async function startLiveAudioStream(
 
   function onTrackEnded(): void {
     if (stopped) return;
-    options.onDegraded?.('track-ended');
-    void stop();
+    try {
+      options.onDegraded?.('track-ended');
+    } catch {
+      // Diagnostics callbacks must never prevent fail-closed capture cleanup.
+    } finally {
+      void stop().catch(() => undefined);
+    }
   }
 
   liveTrack.addEventListener('ended', onTrackEnded, { once: true });

@@ -24,10 +24,6 @@ function createHarness(sampleRate = 16_000): Harness {
     getAudioTracks: () => [track],
     getTracks: () => [track],
   } as unknown as MediaStream;
-  const sourceNode = {
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-  } as unknown as MediaStreamAudioSourceNode;
   const processor = {
     connect: vi.fn(),
     disconnect: vi.fn(),
@@ -144,6 +140,29 @@ describe('startLiveAudioStream', () => {
     );
 
     harness.end();
+    await Promise.resolve();
+
+    expect(onDegraded).toHaveBeenCalledWith('track-ended');
+    expect(harness.track.stop).toHaveBeenCalledOnce();
+    await expect(handle.stop()).resolves.toBeUndefined();
+  });
+
+  it('still stops capture if the track-ended degradation callback throws', async () => {
+    const harness = createHarness();
+    const onDegraded = vi.fn(() => {
+      throw new Error('telemetry unavailable');
+    });
+    const handle = await startLiveAudioStream(
+      {
+        stream: harness.stream,
+        source: 'local',
+        sessionId: 'session-1',
+        onDegraded,
+      },
+      dependenciesFor(harness, []),
+    );
+
+    expect(() => harness.end()).not.toThrow();
     await Promise.resolve();
 
     expect(onDegraded).toHaveBeenCalledWith('track-ended');
