@@ -71,6 +71,25 @@ describe('QuestionStream', () => {
     ).toBeDefined();
   });
 
+  it('rejects unbounded or nonsensical duplicate detection configuration', () => {
+    expect(() => new QuestionStream({ duplicateWindowMs: -1 })).toThrow(RangeError);
+    expect(() => new QuestionStream({ duplicateWindowMs: Number.POSITIVE_INFINITY })).toThrow(
+      RangeError,
+    );
+    expect(() => new QuestionStream({ rephraseSimilarityThreshold: -0.01 })).toThrow(RangeError);
+    expect(() => new QuestionStream({ rephraseSimilarityThreshold: 1.01 })).toThrow(RangeError);
+    expect(() => new QuestionStream({ rephraseSimilarityThreshold: Number.NaN })).toThrow(
+      RangeError,
+    );
+  });
+
+  it('accepts the inclusive duplicate detection boundaries', () => {
+    expect(() =>
+      new QuestionStream({ duplicateWindowMs: 0, rephraseSimilarityThreshold: 0 }),
+    ).not.toThrow();
+    expect(() => new QuestionStream({ rephraseSimilarityThreshold: 1 })).not.toThrow();
+  });
+
   it('can be reset explicitly', () => {
     const stream = new QuestionStream({}, { now: () => 2_000 });
 
