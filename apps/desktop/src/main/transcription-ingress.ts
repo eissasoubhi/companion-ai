@@ -15,14 +15,14 @@ type ActiveTranscriptionSession = Pick<
 export class TranscriptionIngress {
   readonly #audioIpc: AudioIpcController;
   #active: ActiveTranscriptionSession | undefined;
-  #closing = false;
+  #closePromise: Promise<void> | undefined;
 
   constructor(audioIpc: AudioIpcController) {
     this.#audioIpc = audioIpc;
   }
 
   activate(session: ActiveTranscriptionSession): void {
-    if (this.#active || this.#closing) {
+    if (this.#active || this.#closePromise) {
       throw new Error('A transcription session is already active or closing.');
     }
 
@@ -42,18 +42,25 @@ export class TranscriptionIngress {
   }
 
   async deactivate(): Promise<void> {
+    if (this.#closePromise) {
+      await this.#closePromise;
+      return;
+    }
+
     const active = this.#active;
-    if (!active || this.#closing) return;
+    if (!active) return;
 
     // Stop accepting new chunks before closing provider connections. In-flight
     // writes keep their captured sink reference and settle independently.
-    this.#closing = true;
     this.#active = undefined;
     this.#audioIpc.setSink(undefined);
+
+    const closePromise = active.close();
+    this.#closePromise = closePromise;
     try {
-      await active.close();
+      await closePromise;
     } finally {
-      this.#closing = false;
+      if (this.#closePromise === closePromise) this.#closePromise = undefined;
     }
   }
 
