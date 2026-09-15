@@ -87,6 +87,17 @@ function defaultDependencies(): MicrophoneDependencies {
   };
 }
 
+function stopDiagnosticStream(stream: MediaStream): void {
+  for (const track of stream.getTracks()) {
+    try {
+      track.stop();
+    } catch {
+      // Diagnostic cleanup is best-effort: one broken track must not leak the others
+      // or turn an otherwise valid diagnostic result into a failure.
+    }
+  }
+}
+
 export async function runMicrophoneDiagnostic(
   dependencies: MicrophoneDependencies = defaultDependencies(),
 ): Promise<MicrophoneDiagnosticResult> {
@@ -136,7 +147,7 @@ export async function runMicrophoneDiagnostic(
           : 'Speak while running diagnostics again if you want to confirm the input level.',
       };
     } finally {
-      for (const track of stream.getTracks()) track.stop();
+      stopDiagnosticStream(stream);
     }
   } catch (error) {
     return describeMicrophoneError(error);

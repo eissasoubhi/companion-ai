@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { describeMicrophoneError } from './microphone-diagnostic.js';
+import {
+  describeMicrophoneError,
+  runMicrophoneDiagnostic,
+} from './microphone-diagnostic.js';
 
 describe('microphone diagnostics', () => {
   it('turns a denied permission into an actionable blocked state', () => {
@@ -28,5 +31,33 @@ describe('microphone diagnostics', () => {
 
     expect(result.state).toBe('error');
     expect(result.message).toContain('unexpectedly');
+  });
+
+  it('stops every acquired track even when one track cleanup throws', async () => {
+    const brokenStop = vi.fn(() => {
+      throw new Error('track stop failed');
+    });
+    const healthyStop = vi.fn();
+    const brokenTrack = { stop: brokenStop } as unknown as MediaStreamTrack;
+    const healthyTrack = { stop: healthyStop } as unknown as MediaStreamTrack;
+    const stream = {
+      getAudioTracks: () => [],
+      getTracks: () => [brokenTrack, healthyTrack],
+    } as unknown as MediaStream;
+
+    const result = await runMicrophoneDiagnostic({
+      getPermissionStatus: vi.fn(async () => 'granted' as MediaAccessStatus),
+      requestPermission: vi.fn(async () => 'granted' as MediaAccessStatus),
+      getUserMedia: vi.fn(async () => stream),
+      enumerateDevices: vi.fn(async () => []),
+      createAudioContext: vi.fn(() => {
+        throw new Error('audio context should not be created without an audio track');
+      }),
+    });
+
+    expect(result.state).toBe('blocked');
+    expect(result.message).toContain('without a microphone track');
+    expect(brokenStop).toHaveBeenCalledOnce();
+    expect(healthyStop).toHaveBeenCalledOnce();
   });
 });
