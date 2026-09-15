@@ -134,4 +134,35 @@ describe('TranscriptionIngress', () => {
     ingress.activate(next);
     expect(ingress.activeSessionId).toBe('session-2');
   });
+
+  it('makes concurrent deactivation callers await the same provider teardown', async () => {
+    const { ingress } = harness();
+    let releaseClose: (() => void) | undefined;
+    let secondSettled = false;
+    const close = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseClose = resolve;
+        }),
+    );
+
+    ingress.activate({
+      sessionId: 'session-1',
+      writeAudio: vi.fn(async () => undefined),
+      close,
+    });
+
+    const first = ingress.deactivate();
+    const second = ingress.deactivate().finally(() => {
+      secondSettled = true;
+    });
+    await Promise.resolve();
+
+    expect(close).toHaveBeenCalledOnce();
+    expect(secondSettled).toBe(false);
+
+    releaseClose?.();
+    await Promise.all([first, second]);
+    expect(secondSettled).toBe(true);
+  });
 });
